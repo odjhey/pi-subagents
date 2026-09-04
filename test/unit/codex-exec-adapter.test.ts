@@ -153,40 +153,4 @@ describe("Codex exec adapter", () => {
 		writeWorkflowReceipt(writerDir, writerReceipt);
 		assert.deepEqual(readWorkflowReceipt(writerRoot, "writer").entries.codex?.externalAdapter?.safety, writer.safety);
 	});
-
-	it("discovers the built-in profile without probing Codex", () => {
-		const dir = tempDir();
-		const agents = discoverAgentsAll(dir).builtin;
-		assert.deepEqual(agents.find((candidate) => candidate.name === "codex-exec")?.runner, { type: "external-cli", adapter: "codex-exec", command: "codex", promptDelivery: "stdin" });
-		assert.deepEqual(agents.find((candidate) => candidate.name === "codex-exec-writer")?.runner, { type: "external-cli", adapter: "codex-exec-writer", command: "codex", promptDelivery: "stdin" });
-	});
-
-	it("keeps the read-only Codex selection reserved across discovery identities", () => {
-		const project = tempDir();
-		const userRoot = tempDir();
-		const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-		const packageRoot = path.join(project, ".pi", "npm", "node_modules", "unsafe-codex-package");
-		try {
-			process.env.PI_CODING_AGENT_DIR = userRoot;
-			fs.mkdirSync(path.join(userRoot, "agents"), { recursive: true });
-			fs.mkdirSync(path.join(project, ".pi", "agents"), { recursive: true });
-			fs.mkdirSync(path.join(packageRoot, "agents"), { recursive: true });
-			fs.writeFileSync(path.join(project, ".pi", "settings.json"), JSON.stringify({ subagents: { agentOverrides: { "codex-exec": { disabled: true } } } }));
-			fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "unsafe-codex-package", "pi-subagents": { agents: ["./agents"] } }));
-			fs.writeFileSync(path.join(packageRoot, "agents", "codex-exec.md"), `---\nname: codex-exec\npackage: unsafe-mode\ndescription: Unsafe package local name\nrunner:\n  type: external-cli\n  adapter: codex-exec-writer\n  command: codex\n---\nWrite.\n`);
-			fs.writeFileSync(path.join(project, ".pi", "agents", "project-writer.md"), `---\nname: project-writer\naliases: codex-exec\ndescription: Unsafe project alias\nrunner:\n  type: external-cli\n  adapter: codex-exec-writer\n  command: codex\n---\nWrite.\n`);
-			fs.writeFileSync(path.join(userRoot, "agents", "codex-exec.md"), `---\nname: codex-exec\ndescription: Unsafe user shadow\nrunner:\n  type: external-cli\n  adapter: codex-exec-writer\n  command: codex\n---\nWrite.\n`);
-
-			const all = discoverAgentsAll(project);
-			for (const [source, name] of [["package", "codex-exec"], ["project", "project-writer"], ["user", "codex-exec"]] as const) {
-				assert.match(all.agentDiagnostics?.find((diagnostic) => diagnostic.source === source && diagnostic.name === name)?.error ?? "", /Selection name 'codex-exec' is reserved/);
-			}
-			const effective = discoverAgents(project, "both").agents;
-			assert.equal(resolveAgentName("codex-exec", effective).agent, undefined);
-			assert.equal(resolveAgentName("codex-exec-writer", effective).agent?.runner?.type === "external-cli" ? resolveAgentName("codex-exec-writer", effective).agent?.runner?.adapter : undefined, "codex-exec-writer");
-		} finally {
-			if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-			else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-		}
-	});
 });

@@ -312,6 +312,7 @@ export interface SubagentParamsLike {
 	agent?: string;
 	task?: string;
 	capabilities?: boolean;
+	proposalAgent?: string;
 	extensionBindings?: ExtensionBindings;
 	/** Retained async child run id. Valid only on workflow runs.run items. */
 	resume?: string;
@@ -5822,7 +5823,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 					state: deps.state,
 					signal,
 					launchProposalChild: (task, outputSchema, proposalSignal) => execute(randomUUID(), {
-						agent: "reviewer",
+						agent: paramsWithResolvedCwd.proposalAgent,
 						task,
 						context: "fresh",
 						async: false,

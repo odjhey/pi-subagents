@@ -2,20 +2,17 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { BUILTIN_AGENT_NAMES } from "../agents/agents.ts";
 import { getPiSpawnCommand } from "../runs/shared/pi-spawn.ts";
 import { findModelInfo, getSupportedThinkingLevels, splitKnownThinkingSuffix, toModelInfo } from "../shared/model-info.ts";
 import { getAgentDir } from "../shared/utils.ts";
 
 export const DEFAULT_PROVIDER_MODELS_MAX_AGE_DAYS = 7;
 
-type BuiltinAgentName = typeof BUILTIN_AGENT_NAMES[number];
 export type ProfileKind = "quota" | "quality";
 export type ProbeStatus = "ok" | "unavailable" | "auth" | "timeout" | "error" | "skipped";
 export type CostTier = "cheap" | "medium" | "expensive";
 export type QualityTier = "weak" | "medium" | "strong";
 export type LatencyTier = "fast" | "medium" | "slow";
-export type RecommendedRoleTier = "cheap" | "medium" | "strong";
 
 interface ProfileAgentOverride {
 	model?: string;
@@ -60,8 +57,6 @@ export interface ProviderModelCatalogModel {
 		costTier: CostTier;
 		qualityTier: QualityTier;
 		latencyTier: LatencyTier;
-		recommendedRoleTier: RecommendedRoleTier;
-		recommendedAgents: BuiltinAgentName[];
 		classificationSources: ClassificationSource[];
 	};
 	warnings: string[];
@@ -253,25 +248,11 @@ function scoreToQualityTier(score: number): QualityTier {
 	return "strong";
 }
 
-function qualityTierToRoleTier(quality: QualityTier, cost: CostTier): RecommendedRoleTier {
-	if (quality === "strong") return "strong";
-	if (quality === "medium") return cost === "cheap" ? "cheap" : "medium";
-	return "cheap";
-}
-
-function agentsForRoleTier(roleTier: RecommendedRoleTier): BuiltinAgentName[] {
-	if (roleTier === "cheap") return ["scout", "delegate"];
-	if (roleTier === "medium") return ["researcher", "reviewer"];
-	return ["worker", "reviewer", "oracle"];
-}
-
 function classifyModel(input: ModelClassificationInput, context: ClassificationContext): {
 	profileRank: number;
 	costTier: CostTier;
 	qualityTier: QualityTier;
 	latencyTier: LatencyTier;
-	recommendedRoleTier: RecommendedRoleTier;
-	recommendedAgents: BuiltinAgentName[];
 	classificationSources: ClassificationSource[];
 } {
 	const modelName = input.name?.trim() || input.id;
@@ -311,7 +292,6 @@ function classifyModel(input: ModelClassificationInput, context: ClassificationC
 			: costNorm !== undefined
 				? (costNorm <= 0.33 ? "fast" : costNorm <= 0.66 ? "medium" : "slow")
 				: (band <= 1 ? "fast" : band >= 3 ? "slow" : "medium");
-	const recommendedRoleTier = qualityTierToRoleTier(qualityTier, costTier);
 	const latencyPenalty = latencyHintsFast ? 125 : 0;
 	const profileRank = Math.round((qualityScore * 100) * 10) + Math.round(versionScore * 25) - latencyPenalty;
 	return {
@@ -319,8 +299,6 @@ function classifyModel(input: ModelClassificationInput, context: ClassificationC
 		costTier,
 		qualityTier,
 		latencyTier,
-		recommendedRoleTier,
-		recommendedAgents: agentsForRoleTier(recommendedRoleTier),
 		classificationSources,
 	};
 }
@@ -398,21 +376,6 @@ function dominatesModel(a: ProviderModelCatalogModel, b: ProviderModelCatalogMod
 
 function filterDominatedModels(models: ProviderModelCatalogModel[]): ProviderModelCatalogModel[] {
 	return models.filter((candidate, index) => !models.some((other, otherIndex) => otherIndex !== index && dominatesModel(other, candidate)));
-}
-
-function buildProfileFile(models: { cheap: string; medium: string; strong: string }): SubagentProfileFile {
-	return {
-		subagents: {
-			agentOverrides: {
-				scout: { model: models.cheap },
-				delegate: { model: models.cheap },
-				researcher: { model: models.medium },
-				worker: { model: models.strong },
-				reviewer: { model: models.strong },
-				oracle: { model: models.strong },
-			},
-		},
-	};
 }
 
 function catalogModelIsUsable(model: ProviderModelCatalogModel): boolean {
@@ -601,12 +564,12 @@ export async function refreshProviderModelCatalog(
 	return { filePath, catalog, reused: false, heuristicFallbackCount: countHeuristicFallbackModels(catalog) };
 }
 
-export async function generateProfilesForProvider(
+export async function recommendProfileModelsForProvider(
 	pi: Pick<ExtensionAPI, "exec"> | { exec?: ExtensionAPI["exec"] },
 	ctx: Pick<ExtensionContext, "cwd" | "modelRegistry">,
 	provider: string,
 	options: { maxAgeDays?: number; forceRefresh?: boolean; probe?: boolean } = {},
-): Promise<{ quotaPath: string; qualityPath: string; catalogPath: string; quotaModels: { cheap: string; medium: string; strong: string }; qualityModels: { cheap: string; medium: string; strong: string }; heuristicFallbackCount: number; selectedHeuristicFallbackCount: number }> {
+): Promise<{ catalogPath: string; quotaModels: { cheap: string; medium: string; strong: string }; qualityModels: { cheap: string; medium: string; strong: string }; heuristicFallbackCount: number; selectedHeuristicFallbackCount: number }> {
 	const normalizedProvider = normalizeProviderName(provider);
 	const { filePath: catalogPath, catalog, heuristicFallbackCount } = await refreshProviderModelCatalog(pi, ctx, normalizedProvider, {
 		maxAgeDays: options.maxAgeDays,
@@ -620,14 +583,9 @@ export async function generateProfilesForProvider(
 	}
 	const quotaModels = pickTierModels(profileModels, "quota");
 	const qualityModels = pickTierModels(profileModels, "quality");
-	const dir = ensureSubagentProfilesDir();
-	const quotaPath = path.join(dir, `${normalizedProvider}.quota.json`);
-	const qualityPath = path.join(dir, `${normalizedProvider}.quality.json`);
-	writeJsonFile(quotaPath, buildProfileFile(quotaModels));
-	writeJsonFile(qualityPath, buildProfileFile(qualityModels));
 	const selectedModels = new Set([...Object.values(quotaModels), ...Object.values(qualityModels)]);
 	const selectedHeuristicFallbackCount = profileModels.filter((model) => selectedModels.has(model.fullId) && modelUsesHeuristicClassification(model)).length;
-	return { quotaPath, qualityPath, catalogPath, quotaModels, qualityModels, heuristicFallbackCount, selectedHeuristicFallbackCount };
+	return { catalogPath, quotaModels, qualityModels, heuristicFallbackCount, selectedHeuristicFallbackCount };
 }
 
 export async function checkSubagentProfile(

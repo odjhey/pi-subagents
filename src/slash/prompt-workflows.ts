@@ -70,9 +70,9 @@ function parseSkill(value: string | undefined): string | string[] | false | unde
 	return parts.length > 1 ? parts : parts[0];
 }
 
-function parseAgent(frontmatter: Record<string, string>): string {
+function parseAgent(frontmatter: Record<string, string>): string | undefined {
 	const subagent = stringField(frontmatter, "subagent");
-	if (!subagent || subagent === "true") return "delegate";
+	if (!subagent || subagent === "true" || subagent === "false") return undefined;
 	return subagent;
 }
 
@@ -85,12 +85,14 @@ function loadPromptWorkflow(filePath: string): PromptWorkflow | undefined {
 	const skill = parseSkill(stringField(frontmatter, "skill"));
 	const cwd = stringField(frontmatter, "cwd");
 	const chain = stringField(frontmatter, "chain");
+	const agent = parseAgent(frontmatter);
+	if (!agent) return undefined;
 	return {
 		name,
 		description: stringField(frontmatter, "description") ?? firstNonEmptyLine(body),
 		body,
 		filePath,
-		agent: parseAgent(frontmatter),
+		agent,
 		...(booleanField(frontmatter, "inheritContext") === true || booleanField(frontmatter, "fork") === true ? { context: "fork" as const } : {}),
 		...(booleanField(frontmatter, "fresh") === true ? { context: "fresh" as const } : {}),
 		...(model ? { model } : {}),
@@ -221,7 +223,7 @@ function promptWorkflowScript(workflows: PromptWorkflow[], args: string[], runti
 		const params = workflowParams(workflow, args, runtime);
 		const task = params.task ?? "";
 		const child = {
-			agent: params.agent ?? "delegate",
+			agent: params.agent!,
 			task,
 			...(params.model ? { model: params.model } : {}),
 			...(params.skill !== undefined ? { skill: params.skill } : {}),

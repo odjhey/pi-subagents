@@ -96,12 +96,14 @@ function resolveRunCi(args: Record<string, unknown>): { script: string; authorit
 }
 
 function resolveReview(args: Record<string, unknown>): { script: string; authority: WorkflowResourceAuthority } | { error: string } {
-	const unsupported = Object.keys(args).filter((key) => key !== "task");
+	const unsupported = Object.keys(args).filter((key) => key !== "agent" && key !== "task");
 	if (unsupported.length > 0) return { error: `workflow 'review' args contain unsupported fields: ${unsupported.join(", ")}.` };
+	const agent = args.agent;
 	const task = args.task;
+	if (typeof agent !== "string" || !agent.trim()) return { error: "workflow 'review' requires a non-empty string args.agent." };
 	if (typeof task !== "string" || !task.trim()) return { error: "workflow 'review' requires a non-empty string args.task." };
 	return {
-		script: `return (await runs.run("review", { agent: "reviewer", task: ${JSON.stringify(task.trim())} })).output;`,
+		script: `return (await runs.run("review", { agent: ${JSON.stringify(agent.trim())}, task: ${JSON.stringify(task.trim())} })).output;`,
 		authority: {},
 	};
 }

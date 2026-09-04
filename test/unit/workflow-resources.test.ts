@@ -61,7 +61,7 @@ describe("named workflow resources", () => {
 		assert.match(authorizeWorkflowResourceHost(resolved.resource.permit, "ci", "git status") ?? "", /not allowed/);
 		assert.match(authorizeWorkflowResourceHost(resolved.resource.permit, "ci", "npm test") ?? "", /^$/);
 
-		const review = resolveWorkflowResource("review", { task: "Review" });
+		const review = resolveWorkflowResource("review", { agent: "configured-evaluator", task: "Review" });
 		assert.equal(review.ok, true);
 		if (!review.ok) return;
 		const reviewConsumed = consumeWorkflowResourcePermit(review.resource.permit, review.resource.script);
@@ -76,9 +76,10 @@ describe("named workflow resources", () => {
 			["run-ci", { command: "rm -rf /" }],
 			["run-ci", { timeoutMs: 0 }],
 			["run-ci", { extra: true }],
-			["review", { task: "" }],
-			["review", { task: "Review", extra: true }],
-			["review", { task: "x".repeat(16 * 1024 + 1) }],
+			["review", { task: "Review" }],
+			["review", { agent: "configured-evaluator", task: "" }],
+			["review", { agent: "configured-evaluator", task: "Review", extra: true }],
+			["review", { agent: "configured-evaluator", task: "x".repeat(16 * 1024 + 1) }],
 		] as const) {
 			const result = resolveWorkflowResource(name, args);
 			assert.equal(result.ok, false, `${name}: ${JSON.stringify(args)}`);

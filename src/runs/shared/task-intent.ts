@@ -22,16 +22,7 @@ const REVIEW_ONLY_PATTERNS = [
 	/\bsuggest fixes only\b/i,
 	/\bonly return findings\b/i,
 	/\breturn findings only\b/i,
-];
-
-const REVIEWER_REQUIRED_EDIT_PATTERNS = [
-	/\bmust\s+(?:edit|modify|change|fix|patch|apply|implement)\b/i,
-	/\brequired\s+to\s+(?:edit|modify|change|fix|patch|apply|implement)\b/i,
-	/(?:^|[.!?\n]\s*)implement\s+(?:the\s+)?(?:approved|requested|specified|file|code|source|fix(?:es)?|changes?)\b/i,
-	/\bregardless\s+of\s+findings\b/i,
-	/\balways\s+(?:edit|modify|change|fix|patch|apply|implement)\b/i,
-	/\bapply\s+(?:the\s+)?fix(?:es)?\s+directly\b/i,
-	/\bmake\s+(?:the\s+)?code\s+changes\b/i,
+	/\bwithout (?:editing|modifying|changing|writing to) (?:files?|code|it|them)\b/i,
 ];
 
 // The prohibition's object ends at punctuation, a serialized line separator,
@@ -74,12 +65,6 @@ const READ_ONLY_DELIVERABLE_PATTERNS = [
 	/\b(?:return|provide|produce)\s+(?:text|markdown|answer|findings?|recommendations?)\s+only\b/i,
 ];
 
-const RESEARCH_AGENT_PATTERNS = [
-	/\binvestigate\b/i,
-	/\bscout\b/i,
-	/\bresearch(?:er)?\b/i,
-];
-
 // Review/severity vocabulary like "must-fix items" or "should-fix tests" is not
 // the verb. Rather than dash-guarding every pattern (which would also suppress
 // CLI flags like "--fix" and genuine clause-level dashes like "branch—fix it"),
@@ -94,22 +79,13 @@ export { stripSeverityCompounds };
 
 const FIX_OR_PATCH_IMPLEMENTATION_PATTERN = /\b(?:fix|patch)\s+(?:(?:it|this|that|them|each|any|all|these|those)\b|(?:(?:a|an|the|any|all)\s+)?(?:(?:failing|failed|broken|flaky|red|cold|start|current|existing|reported|approved|known|regression|unit|integration|e2e|source|typescript|type-?script|ts|type-?check|compiler)\s+)*(?:bug|defect|issues?|problems?|failures?|regressions?|tests?|errors?|items?|typos?|code|source|implementation|component|function|module|class|method|logic|file|files|readme|docs?|changelog|package\.json|config|manifest|extension|prompt|command|lint(?:ing)?|build|ci|type-?check|type\s+checking)\b)/i;
 
-const WORKER_IMPLEMENTATION_PATTERNS = [
+const GENERAL_IMPLEMENTATION_PATTERNS = [
 	/\b(?:implement|edit|modify|refactor|delete)\b/i,
 	FIX_OR_PATCH_IMPLEMENTATION_PATTERN,
 	/\b(?:update|add|remove|replace|create)\b(?!\s+(?:(?:a|an|the)\s+)?(?:report|summary|findings?)(?:\b|$))/i,
 	/\bapply\s+(?:the\s+)?(?:(?:suggested|proposed|recommended)\s+)?(?:changes?|fix(?:es)?|patch)\b/i,
 	/\bmake\s+(?:the\s+)?changes\b/i,
 	/\bdo those fixes\b/i,
-];
-
-const GENERAL_IMPLEMENTATION_PATTERNS = [
-	/\b(?:implement|edit|modify|refactor)\b/i,
-	FIX_OR_PATCH_IMPLEMENTATION_PATTERN,
-	/\bapply\s+(?:the\s+)?(?:(?:suggested|proposed|recommended)\s+)?(?:changes?|fix(?:es)?|patch)\b/i,
-	/\bmake\s+(?:the\s+)?changes\b/i,
-	/\bdo those fixes\b/i,
-	/\b(?:update|add|remove|replace|delete|create)\s+(?:the\s+)?(?:file|files|code|source|implementation|test|tests|component|function|module|class|method|logic|import|imports|readme|docs?|changelog|package\.json|config|manifest|extension|prompt|command)\b/i,
 ];
 
 export type TaskMutationIntent = { kind: "implementation" } | { kind: "read-only" } | { kind: "unknown" };
@@ -161,28 +137,20 @@ function taskHasReadOnlyDeliverable(taskText: string): boolean {
 	return READ_ONLY_DELIVERABLE_PATTERNS.some((pattern) => pattern.test(taskText));
 }
 
-function isReviewerStyleAgent(agent: string): boolean {
-	return /\b(?:advisor|reviewer|oracle)\b/i.test(agent);
-}
-
-function hasImplementationIntent(agent: string, taskText: string): boolean {
-	if (isReviewerStyleAgent(agent)) return REVIEWER_REQUIRED_EDIT_PATTERNS.some((pattern) => pattern.test(taskText));
-	if (agent === "worker") return WORKER_IMPLEMENTATION_PATTERNS.some((pattern) => pattern.test(taskText));
+function hasImplementationIntent(taskText: string): boolean {
 	return GENERAL_IMPLEMENTATION_PATTERNS.some((pattern) => pattern.test(taskText));
 }
 
-export function classifyTaskMutationIntent(agent: string, task: string): TaskMutationIntent {
+export function classifyTaskMutationIntent(_agent: string, task: string): TaskMutationIntent {
 	const taskText = stripSeverityCompounds(stripFrameworkInstructions(task));
 	const taskTextWithoutScopedConstraints = stripPatterns(taskText, SCOPED_NO_EDIT_CONSTRAINT_PATTERNS);
 	const prohibitions = analyzeNoEditProhibitions(taskTextWithoutScopedConstraints);
 	if (prohibitions.present) {
 		if (prohibitions.blanket) return { kind: "read-only" };
-		return hasImplementationIntent(agent, prohibitions.strippedText) ? { kind: "implementation" } : { kind: "read-only" };
+		return hasImplementationIntent(prohibitions.strippedText) ? { kind: "implementation" } : { kind: "read-only" };
 	}
 
-	if (RESEARCH_AGENT_PATTERNS.some((pattern) => pattern.test(agent))) return { kind: "read-only" };
-	if (hasImplementationIntent(agent, taskText)) return { kind: "implementation" };
-	if (isReviewerStyleAgent(agent)) return { kind: "read-only" };
+	if (hasImplementationIntent(taskText)) return { kind: "implementation" };
 	return taskHasReadOnlyDeliverable(taskTextWithoutScopedConstraints) ? { kind: "read-only" } : { kind: "unknown" };
 }
 

@@ -38,12 +38,12 @@ export interface AgentMemoryConfig {
 	path: string;
 }
 
-export function defaultSystemPromptMode(name: string): SystemPromptMode {
-	return name === "delegate" ? "append" : "replace";
+export function defaultSystemPromptMode(_name: string): SystemPromptMode {
+	return "replace";
 }
 
-export function defaultInheritProjectContext(name: string): boolean {
-	return name === "delegate";
+export function defaultInheritProjectContext(_name: string): boolean {
+	return false;
 }
 
 export function defaultInheritSkills(): boolean {

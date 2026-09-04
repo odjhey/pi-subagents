@@ -92,7 +92,7 @@ const AcceptanceOverride = Type.Unsafe({
 		{ type: "boolean", enum: [false] },
 		{ type: "object", additionalProperties: true },
 	],
-	description: `Optional acceptance policy. Prefer an inline JSON object. JSON-encoded object strings are tolerated only during input normalization; invalid strings fail closed. Reviewer/read-only calls, omit acceptance. { level: "checked", evidence: ["commands-run", "changed-files"] }. Supported evidence kinds: ${AcceptanceEvidenceKinds.join(",")}. acceptance.review.required.`,
+	description: `Optional acceptance policy. Prefer an inline JSON object. JSON-encoded object strings are tolerated only during input normalization; invalid strings fail closed. For explicitly read-only calls, omit acceptance. { level: "checked", evidence: ["commands-run", "changed-files"] }. Supported evidence kinds: ${AcceptanceEvidenceKinds.join(",")}. acceptance.review.required.`,
 });
 
 const AgentContractOverride = Type.Object({
@@ -279,6 +279,7 @@ const ControlOverrides = Type.Object({
 
 const SubagentParamProperties = {
 	agent: Type.Optional(Type.String({ description: "Agent for one-child execution, or target for agent management actions." })),
+	proposalAgent: Type.Optional(Type.String({ description: "Explicit custom agent used to evaluate evidence for action='refine'." })),
 	task: Type.Optional(Type.String({ description: "Optional one-child task. Requires agent; cannot combine with action, workflowScript, or workflowScriptPath." })),
 	extensionBindings: Type.Optional(Type.Unsafe({ type: "object", maxProperties: 16, additionalProperties: true, description: "Namespaced, bounded plain-JSON metadata delivered only to the child runtime. Namespace keys use package.name/1 syntax." })),
 	// Management action (when present, tool operates in management mode)

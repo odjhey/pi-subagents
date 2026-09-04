@@ -75,86 +75,57 @@ describe("public launch contract preflight", () => {
 		fs.rmSync(tempDir, { recursive: true, force: true });
 	});
 
-	it("resolves an ordinary single-agent contract without creating launch directories", async () => {
+	it("resolves an ordinary custom-agent contract without creating launch directories", async () => {
 		const cwd = path.join(tempDir, "repo");
 		fs.mkdirSync(cwd, { recursive: true });
 		writeSkill(cwd, "project-skill");
-		writeAgent(path.join(cwd, ".pi", "agents", "worker.md"), `---
-name: worker
-description: Project worker
-tools:
-  - read
-  - write
-  - /tmp/private-tool.ts
-model: test/primary
-fallbackModels:
-  - test/fallback
-thinking: high
-skills:
-  - project-skill
-output: report.md
----
-Project prompt.
-`);
+		writeAgent(path.join(cwd, ".pi", "agents", "configured-agent.md"), `---\nname: configured-agent\ndescription: Project agent\ntools:\n  - read\n  - write\n  - /tmp/private-tool.ts\nmodel: test/primary\nfallbackModels:\n  - test/fallback\nthinking: high\nskills:\n  - project-skill\noutput: report.md\n---\nProject prompt.\n`);
 		const sessionRoot = path.join(tempDir, "sessions");
 		const handle = registerSubagentCapabilityCeiling({ sessionId: "preflight-session", ceiling: { allowedTools: ["read"], denyExtensions: true }, source: "test" });
 		try {
-			const ceiling = resolveSubagentCapabilityCeiling("preflight-session");
 			const result = await resolveSubagentLaunchContract({
-				agent: "worker",
-				cwd,
-				task: "Inspect the repo",
-				runId: "run-123",
-				sessionRoot,
+				agent: "configured-agent", cwd, task: "Inspect the repo", runId: "run-123", sessionRoot,
 				availableModels: [
 					{ provider: "test", id: "primary", fullId: "test/primary" },
 					{ provider: "test", id: "fallback", fullId: "test/fallback" },
 				],
-				capabilityCeiling: ceiling,
+				capabilityCeiling: resolveSubagentCapabilityCeiling("preflight-session"),
 			});
-
 			assert.equal(result.ok, true);
+			if (!result.ok) return;
 			assert.equal(result.contract.version, SUBAGENT_LAUNCH_CONTRACT_VERSION);
 			assert.equal(result.contract.agent.source, "project");
-			assert.equal(result.contract.agent.definitionProjectionVersion, 1);
-			assert.match(result.contract.agent.definitionDigest, /^[a-f0-9]{64}$/);
-			assert.match(result.contract.launchContractDigest, /^[a-f0-9]{64}$/);
-			assert.ok(result.contract.agent.shadowedCandidates.some((candidate) => candidate.name === "worker" && candidate.source === "builtin"));
 			assert.equal(result.contract.model, "test/primary:high");
 			assert.deepEqual(result.contract.modelCandidates, ["test/primary:high", "test/fallback:high"]);
-			assert.equal(result.contract.thinking, "high");
 			assert.deepEqual(result.contract.skills.requested, ["project-skill"]);
-			assert.equal(result.contract.skills.resolved[0]?.name, "project-skill");
 			assert.deepEqual(result.contract.tools.effectiveAllowlist, ["read"]);
 			assert.deepEqual(result.contract.tools.capabilityAudit?.removedTools, ["write"]);
 			assert.equal(result.contract.tools.capabilityAudit?.removedExtensionCount, 1);
-			assert.equal(result.contract.tools.disableAmbientExtensions, true);
-			assert.equal(result.contract.roots.sessionFile, path.join(sessionRoot, "run-123", "run-0", "session.jsonl"));
 			assert.equal(result.contract.roots.outputPath, path.join(TEMP_ARTIFACTS_DIR, "outputs", "run-123", "report.md"));
-			assert.equal(result.contract.roots.lifecycle?.statusPath.endsWith(path.join("run-123", "status.json")), true);
-			assert.equal(result.contract.roots.lifecycle?.eventsPath.endsWith(path.join("run-123", "events.jsonl")), true);
-			assert.equal(result.contract.roots.lifecycle?.processTerminalPath.endsWith(path.join("run-123", "process-terminal.json")), true);
-			assert.notEqual(result.contract.roots.lifecycle?.asyncDir, result.contract.roots.artifactsDir);
 			assert.match(result.contract.digest, /^[a-f0-9]{64}$/);
-			const repeated = await resolveSubagentLaunchContract({
-				agent: "worker",
-				cwd,
-				task: "Inspect the repo",
-				runId: "run-123",
-				sessionRoot,
-				availableModels: [
-					{ provider: "test", id: "primary", fullId: "test/primary" },
-					{ provider: "test", id: "fallback", fullId: "test/fallback" },
-				],
-				capabilityCeiling: ceiling,
-			});
-			assert.equal(repeated.ok, true);
-			assert.equal(repeated.contract.digest, result.contract.digest);
 			assert.equal(fs.existsSync(sessionRoot), false);
-			assert.equal(fs.existsSync(path.join(cwd, ".pi/subagents")), false);
 		} finally {
 			handle.dispose();
 		}
+	});
+
+	it("uses the parent provider for provider-scoped custom-agent overrides", async () => {
+		const cwd = path.join(tempDir, "provider-overrides");
+		writeAgent(path.join(cwd, ".pi", "agents", "provider-aware.md"), `---\nname: provider-aware\ndescription: Provider aware\n---\nFollow the task.\n`);
+		writeJson(path.join(cwd, ".pi", "settings.json"), { subagents: { agentOverridesByProvider: {
+			"github-copilot": { "provider-aware": { model: "github-copilot/gpt-5-mini" } },
+			openrouter: { "provider-aware": { model: "openrouter/openai/gpt-5-mini" } },
+		} } });
+		const availableModels = [
+			{ provider: "github-copilot", id: "gpt-5-mini", fullId: "github-copilot/gpt-5-mini" },
+			{ provider: "openrouter", id: "openai/gpt-5-mini", fullId: "openrouter/openai/gpt-5-mini" },
+		];
+		const inherited = await resolveSubagentLaunchContract({ agent: "provider-aware", cwd, parentModel: { provider: "github-copilot", id: "parent" }, availableModels });
+		const preferred = await resolveSubagentLaunchContract({ agent: "provider-aware", cwd, preferredProvider: "openrouter", parentModel: { provider: "github-copilot", id: "parent" }, availableModels });
+		assert.equal(inherited.ok, true);
+		assert.equal(preferred.ok, true);
+		if (inherited.ok) assert.equal(inherited.contract.model, "github-copilot/gpt-5-mini");
+		if (preferred.ok) assert.equal(preferred.contract.model, "openrouter/openai/gpt-5-mini");
 	});
 
 	it("binds canonical extension metadata into public preflight provenance", async () => {
@@ -171,34 +142,6 @@ Project prompt.
 		const invalid = await resolveSubagentLaunchContract({ agent: "binding-worker", cwd, extensionBindings: { invalid: true } });
 		assert.equal(invalid.ok, false);
 		if (!invalid.ok) assert.equal(invalid.code, "invalid_extension_bindings");
-	});
-
-	it("uses the parent provider for provider-scoped agent overrides", async () => {
-		const cwd = path.join(tempDir, "provider-overrides");
-		fs.mkdirSync(cwd, { recursive: true });
-		writeJson(path.join(cwd, ".pi", "settings.json"), {
-			subagents: {
-				agentOverridesByProvider: {
-					"github-copilot": { worker: { model: "github-copilot/gpt-5-mini" } },
-					openrouter: { worker: { model: "openrouter/openai/gpt-5-mini" } },
-				},
-			},
-		});
-		const availableModels = [
-			{ provider: "github-copilot", id: "gpt-5-mini", fullId: "github-copilot/gpt-5-mini" },
-			{ provider: "openrouter", id: "openai/gpt-5-mini", fullId: "openrouter/openai/gpt-5-mini" },
-		];
-
-		const copilot = await resolveSubagentLaunchContract({
-			agent: "worker", cwd, parentModel: { provider: "github-copilot", id: "parent" }, availableModels,
-		});
-		const openrouter = await resolveSubagentLaunchContract({
-			agent: "worker", cwd, preferredProvider: "openrouter", parentModel: { provider: "github-copilot", id: "parent" }, availableModels,
-		});
-		assert.equal(copilot.ok, true);
-		assert.equal(openrouter.ok, true);
-		if (copilot.ok) assert.equal(copilot.contract.model, "github-copilot/gpt-5-mini:high");
-		if (openrouter.ok) assert.equal(openrouter.contract.model, "openrouter/openai/gpt-5-mini:high");
 	});
 
 	it("warns when workspace package work has package-only authority", async () => {

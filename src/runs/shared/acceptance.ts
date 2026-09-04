@@ -53,7 +53,7 @@ const ACCEPTANCE_CONFIG_KEYS = new Set(["level", "report", "criteria", "evidence
 const ACCEPTANCE_GATE_KEYS = new Set(["id", "must", "evidence", "severity"]);
 const ACCEPTANCE_VERIFY_KEYS = new Set(["id", "command", "timeoutMs", "cwd", "env", "allowFailure"]);
 const ACCEPTANCE_REVIEW_KEYS = new Set(["agent", "focus", "required"]);
-const EXPLICIT_REVIEWED_UNAVAILABLE = "is an achieved status, not a requestable acceptance level. For a read-only reviewer call, omit acceptance. To require independent review of a writer result, use acceptance.review.required and orchestrate the reviewer separately.";
+const EXPLICIT_REVIEWED_UNAVAILABLE = "is an achieved status, not a requestable acceptance level. For an explicitly read-only call, omit acceptance. To require independent review of a mutation result, use acceptance.review.required and orchestrate the configured review agent separately.";
 
 function normalizeLevel(level: AcceptanceLevel | undefined): Exclude<AcceptanceLevel, "auto"> | "auto" {
 	return level ?? "auto";
@@ -85,11 +85,9 @@ function inferLevel(input: {
 	dynamic?: boolean;
 	dynamicGroup?: boolean;
 }): { level: Exclude<AcceptanceLevel, "auto">; reasons: string[]; criteria: string[]; evidence: AcceptanceEvidenceKind[]; review?: { agent?: string; required?: boolean } } {
-	const agent = input.agentName.toLowerCase();
 	const task = input.task?.toLowerCase() ?? "";
 	const reasons: string[] = [];
-	// Declared roles replace name heuristics, so use the full writer grammar to detect explicit mutation independently of the actual agent name.
-	const intent = classifyTaskMutationIntent(input.acceptanceRole ? "worker" : input.agentName, input.task ?? "");
+	const intent = classifyTaskMutationIntent(input.agentName, input.task ?? "");
 	const readOnlyTask = intent.kind === "read-only"
 		|| (intent.kind === "unknown" && /\b(?:read[- ]only|review[- ]only|no edits|without edits|inspect|summari[sz]e)\b/.test(task));
 	const rolePatchTask = input.acceptanceRole !== undefined
@@ -97,12 +95,9 @@ function inferLevel(input: {
 		&& !/\b(?:do not|don't|must not)\s+patch\b/.test(task)
 		&& /\bpatch\s+(?:(?:\.{0,2}[\\/])?(?:[\w.-]+[\\/])+[\w.-]+|[\w.-]+\.[a-z0-9]+\b|(?:the\s+)?parser\b)/.test(stripSeverityCompounds(task));
 	const taskMayWrite = readOnlyTask ? false : taskMayMutate(input.task ?? "") || intent.kind === "implementation" || rolePatchTask;
-	const readOnlyAgent = input.acceptanceRole === "read-only"
-		|| (input.acceptanceRole === undefined && /\b(?:reviewer|oracle|scout|researcher|analyst)\b/.test(agent));
-	const writeTask = taskMayWrite
-		|| (input.acceptanceRole === "writer" && !readOnlyTask)
-		|| (input.acceptanceRole === undefined && /\bworker\b/.test(agent) && !readOnlyTask);
-	const inferredReadOnly = readOnlyTask || ((readOnlyAgent || input.acceptanceRole === "read-only") && !taskMayWrite);
+	const readOnlyAgent = input.acceptanceRole === "read-only";
+	const writeTask = taskMayWrite || (input.acceptanceRole === "writer" && !readOnlyTask);
+	const inferredReadOnly = readOnlyTask || (readOnlyAgent && !taskMayWrite);
 	const roleResolvesReadOnly = input.acceptanceRole !== undefined && inferredReadOnly;
 	const dynamicResolvesReadOnly = inferredReadOnly && !writeTask;
 	const keywordRiskReadOnly = input.acceptanceRole === undefined ? intent.kind === "read-only" : inferredReadOnly;
@@ -119,11 +114,10 @@ function inferLevel(input: {
 			reasons,
 			criteria: ["Implement the requested change without widening scope", "Return evidence sufficient for an independent acceptance review"],
 			evidence: requiredEvidenceForLevel("checked"),
-			review: { agent: "reviewer", required: true },
 		};
 	}
 	if (writeTask && !readOnlyTask) {
-		reasons.push(input.acceptanceRole === "writer" && !taskMayWrite ? "declared writer acceptance role" : "write-capable worker/task");
+		reasons.push(input.acceptanceRole === "writer" && !taskMayWrite ? "declared writer acceptance role" : "write-capable task");
 		return {
 			level: "checked",
 			reasons,
@@ -132,7 +126,7 @@ function inferLevel(input: {
 		};
 	}
 	if (readOnlyAgent || readOnlyTask) {
-		reasons.push(input.acceptanceRole === "read-only" && !readOnlyTask ? "declared read-only acceptance role" : readOnlyAgent ? "read-only/reviewer-style agent" : "read-only task wording");
+		reasons.push(input.acceptanceRole === "read-only" && !readOnlyTask ? "declared read-only acceptance role" : "read-only task wording");
 		return {
 			level: "none",
 			reasons,

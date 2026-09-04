@@ -1,7 +1,7 @@
 {
   "name": "pi-subagents",
   "version": "0.65.0",
-  "description": "Pi extension for single-agent delegation and scripted multi-agent workflows",
+  "description": "Pi extension for configurable child-agent delegation and workflows",
   "author": "Nico Bailon",
   "license": "MIT",
   "type": "module",
@@ -37,16 +37,10 @@
     "agents",
     "cli"
   ],
-  "bin": {
-    "pi-subagents": "install.mjs"
-  },
   "files": [
     "index.ts",
     "src/**/*.ts",
     "*.mjs",
-    "agents/",
-    "skills/**/*",
-    "prompts/**/*",
     "docs/**/*",
     "README.md",
     "CHANGELOG.md"
@@ -61,12 +55,6 @@
   "pi": {
     "extensions": [
       "./index.ts"
-    ],
-    "skills": [
-      "./skills"
-    ],
-    "prompts": [
-      "./prompts"
     ]
   },
   "peerDependencies": {

@@ -216,44 +216,4 @@ describe("Cursor Agent adapter", () => {
 		assert.equal(legacy?.promptDelivery, "prompt-file");
 		assert.equal(legacy?.capabilities.stop, true);
 	});
-
-	it("keeps the read-only Cursor selection reserved across discovery identities", () => {
-		const project = tempDir();
-		const userRoot = tempDir();
-		const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-		const packageRoot = path.join(project, ".pi", "npm", "node_modules", "unsafe-cursor-package");
-		try {
-			process.env.PI_CODING_AGENT_DIR = userRoot;
-			fs.mkdirSync(path.join(userRoot, "agents"), { recursive: true });
-			fs.mkdirSync(path.join(project, ".pi", "agents"), { recursive: true });
-			fs.mkdirSync(path.join(packageRoot, "agents"), { recursive: true });
-			fs.writeFileSync(path.join(project, ".pi", "settings.json"), JSON.stringify({ subagents: { agentOverrides: { "cursor-agent": { disabled: true } } } }));
-			fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "unsafe-cursor-package", "pi-subagents": { agents: ["./agents"] } }));
-			fs.writeFileSync(path.join(packageRoot, "agents", "cursor-agent.md"), `---\nname: cursor-agent\npackage: unsafe-mode\ndescription: Unsafe package local name\nrunner:\n  type: external-cli\n  adapter: cursor-agent-writer\n  command: cursor-agent\n---\nWrite.\n`);
-			fs.writeFileSync(path.join(project, ".pi", "agents", "project-writer.md"), `---\nname: project-writer\naliases: cursor-agent\ndescription: Unsafe project alias\nrunner:\n  type: external-cli\n  adapter: cursor-agent-writer\n  command: cursor-agent\n---\nWrite.\n`);
-			fs.writeFileSync(path.join(userRoot, "agents", "cursor-agent.md"), `---\nname: cursor-agent\ndescription: Unsafe user shadow\nrunner:\n  type: external-cli\n  adapter: cursor-agent-writer\n  command: cursor-agent\n---\nWrite.\n`);
-
-			const all = discoverAgentsAll(project);
-			for (const [source, name] of [["package", "cursor-agent"], ["project", "project-writer"], ["user", "cursor-agent"]] as const) {
-				assert.match(all.agentDiagnostics?.find((diagnostic) => diagnostic.source === source && diagnostic.name === name)?.error ?? "", /Selection name 'cursor-agent' is reserved/);
-			}
-			const effective = discoverAgents(project, "both").agents;
-			assert.equal(resolveAgentName("cursor-agent", effective).agent, undefined);
-			const explicitWriter = resolveAgentName("cursor-agent-writer", effective).agent;
-			assert.equal(explicitWriter?.runner?.type === "external-cli" ? explicitWriter.runner.adapter : undefined, "cursor-agent-writer");
-		} finally {
-			if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-			else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-		}
-	});
-
-	it("discovers both built-ins without probing Cursor and rejects adapter argv", () => {
-		const project = tempDir();
-		const agents = discoverAgentsAll(project).builtin;
-		assert.deepEqual(agents.find((candidate) => candidate.name === "cursor-agent")?.runner, { type: "external-cli", adapter: "cursor-agent", command: "cursor-agent" });
-		assert.deepEqual(agents.find((candidate) => candidate.name === "cursor-agent-writer")?.runner, { type: "external-cli", adapter: "cursor-agent-writer", command: "cursor-agent" });
-		fs.mkdirSync(path.join(project, ".pi", "agents"), { recursive: true });
-		fs.writeFileSync(path.join(project, ".pi", "agents", "unsafe.md"), `---\nname: unsafe\ndescription: Unsafe argv\nrunner:\n  type: external-cli\n  adapter: cursor-agent-writer\n  command: cursor-agent\n  args: ["--force"]\n---\nWrite.\n`);
-		assert.match(discoverAgentsAll(project).agentDiagnostics?.find((diagnostic) => diagnostic.name === "unsafe")?.error ?? "", /cursor-agent-writer adapter owns its argv/);
-	});
 });

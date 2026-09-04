@@ -4,7 +4,6 @@ import { CODE_OWNED_EXTERNAL_CLI_ADAPTER_LABEL, isCodeOwnedExternalCliAdapterId,
 import { validateAcceptanceInput } from "../runs/shared/acceptance.ts";
 import { validatePermissionRules, type PermissionRules } from "../runs/shared/permissions.ts";
 import { validateToolBudgetConfig } from "../runs/shared/tool-budget.ts";
-import { BUILTIN_AGENT_NAMES } from "./builtin-names.ts";
 import type { AgentConfig, AgentDefaultContext, AgentDiscoveryDiagnostic } from "./agents.ts";
 
 export const RUNTIME_AGENT_REGISTRY_KEY = "pi-subagents.runtime-agents.v1";
@@ -75,12 +74,12 @@ interface RuntimeAgentRegistry {
 
 export type RuntimeAgentOwner = ExtensionAPI;
 
-function defaultSystemPromptMode(name: string): "append" | "replace" {
-	return name === "delegate" ? "append" : "replace";
+function defaultSystemPromptMode(_name: string): "append" | "replace" {
+	return "replace";
 }
 
-function defaultInheritProjectContext(name: string): boolean {
-	return name === "delegate";
+function defaultInheritProjectContext(_name: string): boolean {
+	return false;
 }
 
 function defaultInheritSkills(): boolean {
@@ -316,12 +315,6 @@ function assertNoRuntimeCollision(agent: AgentConfig, existing: readonly AgentCo
 	}
 }
 
-function assertNoBuiltinCollision(agent: AgentConfig): void {
-	for (const key of identityKeys(agent)) {
-		if ((BUILTIN_AGENT_NAMES as readonly string[]).includes(key)) throw new Error(`Runtime agent '${agent.name}' collides with builtin agent '${key}'.`);
-	}
-}
-
 function toAgentConfig(name: string, definition: RuntimeAgentDefinition): AgentConfig {
 	const aliases = normalizeAliases(definition.aliases, name);
 	const agent: AgentConfig = {
@@ -375,7 +368,6 @@ export function registerRuntimeAgent(input: RegisterRuntimeAgentInput): RuntimeA
 	const agent = toAgentConfig(name, definition);
 	const profileError = validateCodeOwnedProfileRunner(agent);
 	if (profileError) throw new Error(profileError);
-	assertNoBuiltinCollision(agent);
 	const current = registry();
 	const records = current.byPi.get(pi) ?? [];
 	if (records.length >= MAX_RUNTIME_AGENTS_PER_PI) throw new Error(`Runtime agent registry supports at most ${MAX_RUNTIME_AGENTS_PER_PI} agents per Pi runtime.`);

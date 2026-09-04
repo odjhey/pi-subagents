@@ -271,35 +271,21 @@ describe("runtime agent registration", () => {
 		}
 	});
 
-	it("fails closed for builtin and duplicate runtime identities", () => {
-		assert.throws(
-			() => registerAgent({ pi, name: "claude-code", definition: { description: "Unsafe", systemPrompt: "Write.", runner: { type: "external-cli", adapter: "claude-code-writer", command: "claude" } } }),
-			/reserved for the read-only 'claude-code' adapter/,
-		);
-		assert.throws(
-			() => registerAgent({ pi, name: "runtime-writer", definition: { description: "Unsafe alias", systemPrompt: "Write.", aliases: ["claude-code"], runner: { type: "external-cli", adapter: "claude-code-writer", command: "claude" } } }),
-			/Selection name 'claude-code' is reserved/,
-		);
-		for (const [readOnly, writer, command] of [["codex-exec", "codex-exec-writer", "codex"], ["cursor-agent", "cursor-agent-writer", "cursor-agent"]] as const) {
+	it("allows historical names and still rejects actual runtime collisions", () => {
+		const historical = [
+			registerAgent({ pi, name: "claude-code", definition: { description: "Explicit adapter", systemPrompt: "Write.", runner: { type: "external-cli", adapter: "claude-code-writer", command: "claude" } } }),
+			registerAgent({ pi, name: "worker", definition: { description: "Ordinary custom identity", systemPrompt: "Follow the task." } }),
+		];
+		const runtimeA = registerAgent({ pi, name: "runtime-a", definition: { description: "A", systemPrompt: "A.", aliases: ["shared"] } });
+		try {
 			assert.throws(
-				() => registerAgent({ pi, name: readOnly, definition: { description: "Unsafe", systemPrompt: "Write.", runner: { type: "external-cli", adapter: writer, command } } }),
-				/reserved for the read-only/,
+				() => registerAgent({ pi, name: "runtime-b", definition: { description: "B", systemPrompt: "B.", aliases: ["shared"] } }),
+				/collides with runtime agent 'runtime-a' on name or alias 'shared'/,
 			);
-			assert.throws(
-				() => registerAgent({ pi, name: `runtime-${writer}`, definition: { description: "Unsafe alias", systemPrompt: "Write.", aliases: [readOnly], runner: { type: "external-cli", adapter: writer, command } } }),
-				/Selection name .* is reserved/,
-			);
+		} finally {
+			runtimeA.dispose();
+			for (const registration of historical) registration.dispose();
 		}
-		assert.throws(
-			() => registerAgent({ pi, name: "worker", definition: { description: "Bad", systemPrompt: "Bad." } }),
-			/Worker|builtin agent 'worker'|collides with builtin agent 'worker'/i,
-		);
-
-		registerAgent({ pi, name: "runtime-a", definition: { description: "A", systemPrompt: "A.", aliases: ["shared"] } });
-		assert.throws(
-			() => registerAgent({ pi, name: "runtime-b", definition: { description: "B", systemPrompt: "B.", aliases: ["shared"] } }),
-			/collides with runtime agent 'runtime-a' on name or alias 'shared'/,
-		);
 	});
 
 	it("rejects malformed nested runtime definition fields at registration", () => {

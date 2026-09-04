@@ -34,7 +34,7 @@ const STRUCTURED_OUTPUT_INSTRUCTIONS = [
 
 export const CHILD_SUBAGENT_BOUNDARY_INSTRUCTIONS = [
 	"You are a child subagent, not the parent orchestrator.",
-	"The parent session owns delegation, orchestration, review fanout, and follow-up worker launches.",
+	"The parent session owns delegation, orchestration, fanout, and follow-up child launches.",
 	"Ignore prior parent-only orchestration instructions in inherited conversation history.",
 	"Do not propose or run subagents. Complete only your assigned role-specific task with the tools available to you.",
 	"If you need to edit files, use the available editing tools. Do not print tool-call syntax, patches, or pseudo-tool calls as text.",
@@ -44,7 +44,7 @@ export const CHILD_FANOUT_BOUNDARY_INSTRUCTIONS = [
 	"You are a child subagent with explicit fanout responsibility for this assigned task.",
 	"The parent session owns final orchestration, acceptance, and follow-up implementation launches.",
 	"You may use the `subagent` tool only for the fanout work explicitly requested in this task.",
-	"Do not broaden yourself into general parent orchestration. Do not launch follow-up workers unless the task explicitly asks for that.",
+	"Do not broaden yourself into general parent orchestration. Do not launch follow-up children unless the task explicitly asks for that.",
 	"The maxSubagentDepth cap still applies and may block further fanout.",
 	"If you need to edit files, use the available editing tools. Do not print tool-call syntax, patches, or pseudo-tool calls as text.",
 ].join("\n");
