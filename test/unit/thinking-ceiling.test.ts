@@ -54,13 +54,15 @@ describe("thinking ceilings", () => {
 		assert.doesNotThrow(() => assertThinkingWithinCeiling({ model: "test/model", configThinking: false, ceiling: "off" }));
 	});
 
-	it("loads maxThinking with project precedence and attaches it to discovered agents", () => {
+	it("loads maxThinking with project precedence and attaches it to custom agents", () => {
 		writeJson(path.join(home, ".pi", "agent", "settings.json"), { subagents: { maxThinking: "max" } });
-		fs.mkdirSync(path.join(project, ".pi"), { recursive: true });
 		writeJson(path.join(project, ".pi", "settings.json"), { subagents: { maxThinking: "xhigh" } });
+		const agentPath = path.join(project, ".pi", "agents", "configured-agent.md");
+		fs.mkdirSync(path.dirname(agentPath), { recursive: true });
+		fs.writeFileSync(agentPath, "---\nname: configured-agent\ndescription: Configured\n---\nFollow the task.\n");
 		const discovered = discoverAgents(project, "both");
 		assert.equal(discovered.maxThinking, "xhigh");
-		assert.equal(discovered.agents.find((agent) => agent.name === "worker")?.maxThinking, "xhigh");
+		assert.equal(discovered.agents.find((agent) => agent.name === "configured-agent")?.maxThinking, "xhigh");
 	});
 
 	it("fails closed for invalid maxThinking settings", () => {

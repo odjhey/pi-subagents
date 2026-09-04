@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, it } from "node:test";
 import { handleList } from "../../src/agents/agent-management.ts";
 import type { AgentConfig } from "../../src/agents/agents.ts";
@@ -48,31 +51,44 @@ describe("capability ceiling agent allowlist", () => {
 		)?.allowedAgents, []);
 	});
 
-	it("marks non-allowlisted agents as restricted in list output", () => {
-		const sessionId = `allowlist-list-${Date.now()}-${Math.random()}`;
-		const handle = registerSubagentCapabilityCeiling({ sessionId, source: "plan-mode", ceiling: { allowedAgents: ["reviewer"] } });
+	it("marks configured non-allowlisted agents as restricted in list output", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-allowlist-list-"));
+		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = path.join(cwd, "agent-home");
 		try {
-			const result = handleList({}, { cwd: process.cwd(), currentSessionId: sessionId, modelRegistry: { getAvailable: () => [] } });
-			const text = result.content[0]?.text ?? "";
-			assert.match(text, /Executable agents:/);
-			assert.match(text, /- reviewer /);
-			assert.match(text, /Restricted agents \(not executable in this session; capability ceiling: plan-mode\):/);
-			assert.match(text, /- worker /);
+			for (const name of ["allowed-agent", "restricted-agent"]) {
+				const filePath = path.join(cwd, ".pi", "agents", `${name}.md`);
+				fs.mkdirSync(path.dirname(filePath), { recursive: true });
+				fs.writeFileSync(filePath, `---\nname: ${name}\ndescription: ${name}\n---\nFollow the task.\n`);
+			}
+			const sessionId = `allowlist-list-${Date.now()}-${Math.random()}`;
+			const handle = registerSubagentCapabilityCeiling({ sessionId, source: "plan-mode", ceiling: { allowedAgents: ["allowed-agent"] } });
+			try {
+				const text = handleList({}, { cwd, currentSessionId: sessionId, modelRegistry: { getAvailable: () => [] } }).content[0]?.text ?? "";
+				assert.match(text, /Executable agents:[\s\S]*- allowed-agent /);
+				assert.match(text, /Restricted agents[\s\S]*- restricted-agent /);
+			} finally { handle.dispose(); }
 		} finally {
-			handle.dispose();
+			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			fs.rmSync(cwd, { recursive: true, force: true });
 		}
 	});
 
-	it("rejects a non-allowlisted agent in preflight launch resolution", async () => {
-		const result = await resolveSubagentLaunchContract({
-			agent: "worker",
-			cwd: process.cwd(),
-			capabilityCeiling: { version: 1, allowedAgents: ["reviewer"], denyExtensions: false, sources: ["plan-mode"] },
-		});
-		assert.equal(result.ok, false);
-		assert.equal(result.code, "restricted_agent");
-		assert.match(result.message, /does not allow agent 'worker'/);
-		assert.match(result.message, /Allowed agents: reviewer/);
+	it("rejects a configured non-allowlisted agent in preflight", async () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-allowlist-preflight-"));
+		try {
+			const filePath = path.join(cwd, ".pi", "agents", "configured-agent.md");
+			fs.mkdirSync(path.dirname(filePath), { recursive: true });
+			fs.writeFileSync(filePath, "---\nname: configured-agent\ndescription: Configured\n---\nFollow the task.\n");
+			const result = await resolveSubagentLaunchContract({
+				agent: "configured-agent", cwd,
+				capabilityCeiling: { version: 1, allowedAgents: ["other-agent"], denyExtensions: false, sources: ["plan-mode"] },
+			});
+			assert.equal(result.ok, false);
+			assert.equal(result.code, "restricted_agent");
+			assert.match(result.message, /does not allow agent 'configured-agent'/);
+		} finally { fs.rmSync(cwd, { recursive: true, force: true }); }
 	});
 
 	it("rejects a non-allowlisted foreground launch before spawning", async () => {

@@ -39,26 +39,14 @@ export function isCodeOwnedExternalCliAdapterId(value: unknown): value is CodeOw
 	return typeof value === "string" && CODE_OWNED_EXTERNAL_CLI_ADAPTER_ID_SET.has(value);
 }
 
-const RESERVED_READ_ONLY_ADAPTERS = [
-	{ name: "claude-code", writer: "claude-code-writer", access: "file-write" },
-	{ name: "codex-exec", writer: "codex-exec-writer", access: "workspace-write" },
-	{ name: "cursor-agent", writer: "cursor-agent-writer", access: "workspace-write" },
-] as const;
-
 export function validateCodeOwnedProfileRunner(
-	agent: {
+	_agent: {
 		name: string;
 		localName?: string;
 		aliases?: readonly string[];
 		runner?: { type: string; adapter?: string };
 	},
 ): string | undefined {
-	const selectionNames = [agent.name, ...(agent.localName ? [agent.localName] : []), ...(agent.aliases ?? [])];
-	for (const adapter of RESERVED_READ_ONLY_ADAPTERS) {
-		if (selectionNames.includes(adapter.name) && !(agent.runner?.type === "external-cli" && agent.runner.adapter === adapter.name)) {
-			return `Selection name '${adapter.name}' is reserved for the read-only '${adapter.name}' adapter. Use '${adapter.writer}' for explicit ${adapter.access} access.`;
-		}
-	}
 	return undefined;
 }
 

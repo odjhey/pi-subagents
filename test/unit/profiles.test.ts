@@ -9,7 +9,7 @@ import {
 	applySubagentProfile,
 	checkSubagentProfile,
 	DEFAULT_PROVIDER_MODELS_MAX_AGE_DAYS,
-	generateProfilesForProvider,
+	recommendProfileModelsForProvider,
 	getProviderModelsPath,
 	getSubagentProfilesDir,
 	listSubagentProfiles,
@@ -240,7 +240,7 @@ describe("profiles helpers", () => {
 		assert.equal(result.reused, true);
 	});
 
-	it("generates quota and quality profiles from sorted provider models", async () => {
+	it("recommends quota and quality models without writing inert profiles", async () => {
 		const pi = {
 			exec: async () => ({ stdout: "OK\n", stderr: "", code: 0, killed: false }),
 		};
@@ -251,7 +251,7 @@ describe("profiles helpers", () => {
 			{ provider: "openai-codex", id: "gpt-5.5", reasoning: true },
 		]);
 
-		const result = await generateProfilesForProvider(pi, ctx as never, "openai-codex");
+		const result = await recommendProfileModelsForProvider(pi, ctx as never, "openai-codex");
 		assert.equal(result.heuristicFallbackCount, 4);
 		assert.equal(result.selectedHeuristicFallbackCount, 4);
 		assert.equal(result.quotaModels.cheap, "openai-codex/gpt-5.3-codex-spark");
@@ -260,6 +260,8 @@ describe("profiles helpers", () => {
 		assert.equal(result.qualityModels.cheap, "openai-codex/gpt-5.4-mini");
 		assert.equal(result.qualityModels.medium, "openai-codex/gpt-5.4");
 		assert.equal(result.qualityModels.strong, "openai-codex/gpt-5.5");
+		assert.equal(fs.existsSync(path.join(getSubagentProfilesDir(), "openai-codex.quota.json")), false);
+		assert.equal(fs.existsSync(path.join(getSubagentProfilesDir(), "openai-codex.quality.json")), false);
 	});
 
 	it("does not treat provider names like MiniMax as mini-tier tokens and prefers M3 over M2.7-highspeed for quality", async () => {
@@ -303,7 +305,7 @@ describe("profiles helpers", () => {
 		assert.equal(typeof highspeed?.derived.profileRank, "number");
 		assert.equal(typeof m3?.derived.profileRank, "number");
 		assert.equal((m3?.derived.profileRank ?? 0) > (highspeed?.derived.profileRank ?? 0), true);
-		const result = await generateProfilesForProvider(pi, ctx as never, "minimax", { forceRefresh: true });
+		const result = await recommendProfileModelsForProvider(pi, ctx as never, "minimax", { forceRefresh: true });
 		assert.equal(result.quotaModels.cheap, "minimax/MiniMax-M2.7");
 		assert.equal(result.quotaModels.medium, "minimax/MiniMax-M2.7");
 		assert.equal(result.quotaModels.strong, "minimax/MiniMax-M2.7");

@@ -25,6 +25,15 @@ const expectedHostPeerRanges = {
 	"@earendil-works/pi-coding-agent": "*",
 	"@earendil-works/pi-tui": "*",
 } satisfies Record<(typeof hostPeerPackages)[number], string>;
+test("the published package contains no bundled agent, prompt, or skill assets", () => {
+	const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf-8")) as { files?: string[]; pi?: Record<string, unknown> };
+	assert.equal(manifest.files?.some((entry) => /^(?:agents|prompts|skills)(?:\/|$)/.test(entry)), false);
+	assert.equal("agents" in (manifest.pi ?? {}), false);
+	assert.equal("prompts" in (manifest.pi ?? {}), false);
+	assert.equal("skills" in (manifest.pi ?? {}), false);
+	for (const dir of ["agents", "prompts", "skills"]) assert.equal(fs.existsSync(path.join(projectRoot, dir)), false, dir);
+});
+
 const expectedHostDevVersions = {
 	"@earendil-works/pi-agent-core": "0.81.0",
 	"@earendil-works/pi-ai": "0.81.0",

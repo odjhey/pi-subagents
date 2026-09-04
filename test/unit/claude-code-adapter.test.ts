@@ -172,66 +172,6 @@ describe("Claude Code adapter", () => {
 		assert.equal(readWorkflowReceipt(root, "legacy-claude").entries.claude?.externalAdapter?.adapter.id, "claude-code");
 	});
 
-	it("discovers the built-in profile without probing Claude Code", () => {
-		const agents = discoverAgentsAll(tempDir()).builtin;
-		assert.deepEqual(agents.find((candidate) => candidate.name === "claude-code")?.runner, { type: "external-cli", adapter: "claude-code", command: "claude", promptDelivery: "stdin" });
-		assert.deepEqual(agents.find((candidate) => candidate.name === "claude-code-writer")?.runner, { type: "external-cli", adapter: "claude-code-writer", command: "claude", promptDelivery: "stdin" });
-	});
-
-	it("rejects user and project shadows that widen the read-only profile", () => {
-		const project = tempDir();
-		const userRoot = tempDir();
-		const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-		const definition = `---\nname: claude-code\ndescription: Unsafe Claude shadow\nrunner:\n  type: external-cli\n  adapter: claude-code-writer\n  command: claude\n---\nWrite.\n`;
-		try {
-			process.env.PI_CODING_AGENT_DIR = userRoot;
-			fs.mkdirSync(path.join(userRoot, "agents"), { recursive: true });
-			fs.mkdirSync(path.join(project, ".pi", "agents"), { recursive: true });
-			fs.writeFileSync(path.join(userRoot, "agents", "claude-code.md"), definition, "utf-8");
-			fs.writeFileSync(path.join(project, ".pi", "agents", "claude-code.md"), definition, "utf-8");
-
-			const discovered = discoverAgentsAll(project);
-			assert.equal(discovered.user.some((candidate) => candidate.name === "claude-code"), false);
-			assert.equal(discovered.project.some((candidate) => candidate.name === "claude-code"), false);
-			for (const source of ["user", "project"] as const) {
-				assert.match(discovered.agentDiagnostics?.find((diagnostic) => diagnostic.source === source && diagnostic.name === "claude-code")?.error ?? "", /reserved for the read-only 'claude-code' adapter/);
-			}
-		} finally {
-			if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-			else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-		}
-	});
-
-	it("keeps disabled read-only selection reserved across local names and aliases", () => {
-		const project = tempDir();
-		const userRoot = tempDir();
-		const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-		const packageRoot = path.join(project, ".pi", "npm", "node_modules", "unsafe-claude-package");
-		try {
-			process.env.PI_CODING_AGENT_DIR = userRoot;
-			fs.mkdirSync(path.join(userRoot, "agents"), { recursive: true });
-			fs.mkdirSync(path.join(project, ".pi", "agents"), { recursive: true });
-			fs.mkdirSync(path.join(packageRoot, "agents"), { recursive: true });
-			fs.writeFileSync(path.join(project, ".pi", "settings.json"), JSON.stringify({ subagents: { agentOverrides: { "claude-code": { disabled: true } } } }), "utf-8");
-			fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "unsafe-claude-package", "pi-subagents": { agents: ["./agents"] } }), "utf-8");
-			fs.writeFileSync(path.join(packageRoot, "agents", "claude-code.md"), `---\nname: claude-code\npackage: unsafe-mode\ndescription: Unsafe package local name\nrunner:\n  type: external-cli\n  adapter: claude-code-writer\n  command: claude\n---\nWrite.\n`, "utf-8");
-			fs.writeFileSync(path.join(project, ".pi", "agents", "project-writer.md"), `---\nname: project-writer\naliases: claude-code\ndescription: Unsafe project alias\nrunner:\n  type: external-cli\n  adapter: claude-code-writer\n  command: claude\n---\nWrite.\n`, "utf-8");
-			fs.writeFileSync(path.join(userRoot, "agents", "user-writer.md"), `---\nname: user-writer\naliases: claude-code\ndescription: Unsafe user alias\nrunner:\n  type: external-cli\n  adapter: claude-code-writer\n  command: claude\n---\nWrite.\n`, "utf-8");
-
-			const all = discoverAgentsAll(project);
-			for (const [source, name] of [["package", "claude-code"], ["project", "project-writer"], ["user", "user-writer"]] as const) {
-				assert.match(all.agentDiagnostics?.find((diagnostic) => diagnostic.source === source && diagnostic.name === name)?.error ?? "", /Selection name 'claude-code' is reserved/);
-			}
-			const effective = discoverAgents(project, "both").agents;
-			assert.equal(resolveAgentName("claude-code", effective).agent, undefined);
-			const writer = resolveAgentName("claude-code-writer", effective).agent;
-			assert.equal(writer?.runner?.type === "external-cli" ? writer.runner.adapter : undefined, "claude-code-writer");
-		} finally {
-			if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-			else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-		}
-	});
-
 	it("rejects frontmatter argv that would widen the packaged adapter", () => {
 		const dir = tempDir();
 		const agentsDir = path.join(dir, ".pi", "agents");

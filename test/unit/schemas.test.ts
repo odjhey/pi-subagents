@@ -591,7 +591,7 @@ describe("SubagentParams schema", { skip: !schemasAvailable ? "typebox not avail
 		assert.deepEqual(reviewedRecoveryBranch?.enum, ["reviewed"]);
 		assert.equal(reviewedRecoveryBranch?.deprecated, true);
 		assert.equal(acceptanceStringBranches.some((branch) => branch.enum === undefined), true, "acceptance should tolerate JSON-encoded object strings");
-		assert.match(String(acceptanceSchema.description ?? ""), /reviewer\/read-only calls, omit acceptance/i);
+		assert.match(String(acceptanceSchema.description ?? ""), /explicitly read-only calls, omit acceptance/i);
 		assert.match(String(acceptanceSchema.description ?? ""), /prefer an inline JSON object/i);
 		assert.match(String(acceptanceSchema.description ?? ""), /JSON-encoded object strings are tolerated only during input normalization/i);
 		assert.match(String(acceptanceSchema.description ?? ""), /acceptance\.review\.required/);

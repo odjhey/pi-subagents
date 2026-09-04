@@ -928,65 +928,38 @@ describe("slash command custom message delivery", { skip: !available ? "slash-co
 		assert.deepEqual(requestedParams, { action: "steer", id: "run-123", message: "--child --verbose", steeringRecovery: false });
 	});
 
-	it("/run accepts an agent without a task", async () => {
+	it("/run accepts a configured agent without a task", async () => {
 		const sent: unknown[] = [];
-		const commands = new Map<string, { handler(args: string, ctx: unknown): Promise<void> }>();
+		const commands = new Map<string, RegisteredSlashCommand>();
 		const events = createEventBus();
 		let requestedParams: unknown;
-		let requestedCtx: unknown;
-		const sessionManager = {
-			flushed: false,
-			rewrites: 0,
-			getSessionFile: () => "session.jsonl",
-			_rewriteFile() {
-				this.rewrites++;
-			},
-		};
+		const sessionManager = { flushed: false, rewrites: 0, getSessionFile: () => "session.jsonl", _rewriteFile() { this.rewrites++; } };
 		events.on(SLASH_SUBAGENT_REQUEST_EVENT, (data) => {
-			const payload = data as { requestId: string; params?: unknown; ctx?: unknown };
+			const payload = data as { requestId: string; params?: unknown };
 			requestedParams = payload.params;
-			requestedCtx = payload.ctx;
 			events.emit(SLASH_SUBAGENT_STARTED_EVENT, { requestId: payload.requestId });
-			events.emit(SLASH_SUBAGENT_RESPONSE_EVENT, {
-				requestId: payload.requestId,
-				result: {
-					content: [{ type: "text", text: "Commit finished" }],
-					details: { mode: "single", results: [] },
-				},
-				isError: false,
-			});
+			events.emit(SLASH_SUBAGENT_RESPONSE_EVENT, { requestId: payload.requestId, result: { content: [{ type: "text", text: "Finished" }], details: { mode: "single", results: [] } }, isError: false });
 		});
-
 		const pi = {
-			events,
-			registerCommand(name: string, spec: { handler(args: string, ctx: unknown): Promise<void> }) {
-				commands.set(name, spec);
-			},
-			registerShortcut() {},
-			sendMessage(message: unknown) {
-				sent.push(message);
-			},
+			events, on() { return () => {}; }, registerTool() {},
+			registerCommand(name: string, spec: RegisteredSlashCommand) { commands.set(name, spec); }, registerShortcut() {},
+			sendMessage(message: unknown) { sent.push(message); },
 		};
-
-		const ctx = createCommandContext({ sessionManager });
-		registerSlashCommands!(pi, createState(process.cwd()));
-		await commands.get("run")!.handler("scout", ctx);
-		await new Promise<void>((resolve) => setImmediate(resolve));
-
-		assert.deepEqual(requestedParams, { workflowScript: "return runs.run(\"run\", {\"agent\":\"scout\",\"task\":\"\",\"agentScope\":\"both\"})", async: false });
-		assert.equal(requestedCtx, ctx);
-		assert.equal(sent.length, 2);
-		assert.equal((sent[0] as { display?: boolean }).display, true);
-		assert.equal((sent[0] as { content?: string }).content, "Running subagent...");
-		assert.equal((sent[1] as { display?: boolean }).display, true);
-		assert.match((sent[1] as { content?: string }).content ?? "", /Commit finished/);
-		assert.equal(sessionManager.rewrites, 2);
-		assert.equal(sessionManager.flushed, true);
+		const registration = registerAgent({ pi: pi as never, name: "configured-agent", definition: { description: "Configured", systemPrompt: "Follow the task." } });
+		try {
+			registerSlashCommands!(pi, createState(process.cwd()));
+			await commands.get("run")!.handler("configured-agent", createCommandContext({ sessionManager }));
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			assert.deepEqual(requestedParams, { workflowScript: "return runs.run(\"run\", {\"agent\":\"configured-agent\",\"task\":\"\",\"agentScope\":\"both\"})", async: false });
+			assert.equal(sent.length, 2);
+			assert.equal(sessionManager.rewrites, 2);
+			assert.equal(sessionManager.flushed, true);
+		} finally { registration.dispose(); }
 	});
 
 	it("/run abandons captured context when commands are disposed during reload", async () => {
 		const sent: unknown[] = [];
-		const commands = new Map<string, { handler(args: string, ctx: unknown): Promise<void> }>();
+		const commands = new Map<string, RegisteredSlashCommand>();
 		const events = createEventBus();
 		let deliverResponse: (() => void) | undefined;
 		events.on(SLASH_SUBAGENT_REQUEST_EVENT, (data) => {
@@ -994,75 +967,171 @@ describe("slash command custom message delivery", { skip: !available ? "slash-co
 			events.emit(SLASH_SUBAGENT_STARTED_EVENT, { requestId });
 			deliverResponse = () => events.emit(SLASH_SUBAGENT_RESPONSE_EVENT, {
 				requestId,
-				result: {
-					content: [{ type: "text", text: "late result" }],
-					details: { mode: "single", results: [] },
-				},
+				result: { content: [{ type: "text", text: "late result" }], details: { mode: "single", results: [] } },
 				isError: false,
 			});
 		});
-
 		const pi = {
 			events,
-			registerCommand(name: string, spec: { handler(args: string, ctx: unknown): Promise<void> }) {
-				commands.set(name, spec);
-			},
-			registerShortcut() {},
-			sendMessage(message: unknown) { sent.push(message); },
-		};
-		const disposer = registerSlashCommands!(pi, createState(process.cwd()));
-		let stale = false;
-		const ctx = createCommandContext({ hasUI: true });
-		Object.defineProperty(ctx, "hasUI", {
-			get() {
-				if (stale) throw new Error("This extension ctx is stale after session replacement or reload.");
-				return true;
-			},
-		});
-
-		await commands.get("run")!.handler("scout Inspect this", ctx);
-		assert.equal(sent.length, 1);
-		stale = true;
-		disposer.dispose();
-		deliverResponse?.();
-		await new Promise<void>((resolve) => setImmediate(resolve));
-
-		assert.equal(sent.length, 1, "disposed slash work must not use the stale context for a final message");
-	});
-
-	it("/run handles a start timeout without an uninitialized finish callback", async () => {
-		const sent: unknown[] = [];
-		const commands = new Map<string, RegisteredSlashCommand>();
-		const pi = {
-			events: createEventBus(),
+			on() { return () => {}; },
+			registerTool() {},
 			registerCommand(name: string, spec: RegisteredSlashCommand) { commands.set(name, spec); },
 			registerShortcut() {},
 			sendMessage(message: unknown) { sent.push(message); },
 		};
+		const registration = registerAgent({ pi: pi as never, name: "configured-agent", definition: { description: "Configured", systemPrompt: "Follow the task." } });
+		const disposer = registerSlashCommands!(pi, createState(process.cwd()));
+		let stale = false;
+		const ctx = createCommandContext({ hasUI: true });
+		Object.defineProperty(ctx, "hasUI", { get() {
+			if (stale) throw new Error("This extension ctx is stale after session replacement or reload.");
+			return true;
+		} });
+
+		await commands.get("run")!.handler("configured-agent Inspect this", ctx);
+		assert.equal(sent.length, 1);
+		stale = true;
+		disposer.dispose();
+		registration.dispose();
+		deliverResponse?.();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		assert.equal(sent.length, 1);
+	});
+
+	it("/run handles a start timeout before a response callback exists", async () => {
+		const sent: unknown[] = [];
+		const commands = new Map<string, RegisteredSlashCommand>();
+		const pi = {
+			events: createEventBus(),
+			on() { return () => {}; },
+			registerTool() {},
+			registerCommand(name: string, spec: RegisteredSlashCommand) { commands.set(name, spec); },
+			registerShortcut() {},
+			sendMessage(message: unknown) { sent.push(message); },
+		};
+		const registration = registerAgent({ pi: pi as never, name: "configured-agent", definition: { description: "Configured", systemPrompt: "Follow the task." } });
 		const disposer = registerSlashCommands!(pi, createState(process.cwd()));
 		const realSetTimeout = globalThis.setTimeout;
 		let timeoutCalls = 0;
-		const immediateTimeout = (...args: Parameters<typeof setTimeout>): ReturnType<typeof setTimeout> => {
-			const [handler, delay, ...rest] = args;
+		globalThis.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
 			if (delay === 15_000) {
 				timeoutCalls += 1;
-				(handler as (...values: unknown[]) => void)(...rest);
+				(handler as (...values: unknown[]) => void)(...args);
 				return 0 as ReturnType<typeof setTimeout>;
 			}
-			return realSetTimeout(...args);
-		};
-		globalThis.setTimeout = immediateTimeout;
+			return realSetTimeout(handler, delay, ...args);
+		}) as typeof setTimeout;
 		try {
-			await commands.get("run")!.handler("scout Inspect this", createCommandContext());
+			await commands.get("run")!.handler("configured-agent Inspect this", createCommandContext());
 			await new Promise<void>((resolve) => setImmediate(resolve));
 		} finally {
 			globalThis.setTimeout = realSetTimeout;
 			disposer.dispose();
+			registration.dispose();
 		}
-
 		assert.equal(timeoutCalls, 1);
 		assert.equal(sent.length, 2);
 		assert.match((sent[1] as { content?: string }).content ?? "", /did not start within 15s/);
+	});
+
+	it("/run finalizes its live snapshot before the final UI redraw", async () => {
+		const sent: unknown[] = [];
+		const log: string[] = [];
+		const commands = new Map<string, RegisteredSlashCommand>();
+		const events = createEventBus();
+		events.on(SLASH_SUBAGENT_REQUEST_EVENT, (data) => {
+			const requestId = (data as { requestId: string }).requestId;
+			events.emit(SLASH_SUBAGENT_STARTED_EVENT, { requestId });
+			events.emit(SLASH_SUBAGENT_RESPONSE_EVENT, {
+				requestId,
+				result: { content: [{ type: "text", text: "Configured child finished" }], details: { mode: "single", results: [{ sessionFile: "/tmp/child-session.jsonl" }] } },
+				isError: false,
+			});
+		});
+		const pi = {
+			events,
+			on() { return () => {}; },
+			registerTool() {},
+			registerCommand(name: string, spec: RegisteredSlashCommand) { commands.set(name, spec); },
+			registerShortcut() {},
+			sendMessage(message: unknown) {
+				sent.push(message);
+				log.push(`send:${(message as { display?: boolean }).display === false ? "hidden" : "visible"}`);
+			},
+		};
+		const registration = registerAgent({ pi: pi as never, name: "configured-agent", definition: { description: "Configured", systemPrompt: "Follow the task." } });
+		registerSlashCommands!(pi, createState(process.cwd()));
+		await commands.get("run")!.handler("configured-agent inspect this", createCommandContext({
+			hasUI: true,
+			setStatus: (_key, text) => log.push(`status:${text ?? "clear"}`),
+		}));
+		await new Promise<void>((resolve) => setImmediate(resolve));
+
+		assert.deepEqual(log, ["send:visible", "status:running...", "send:hidden", "status:clear"]);
+		const visibleDetails = resolveSlashMessageDetails!((sent[0] as { details?: unknown }).details);
+		assert.ok(visibleDetails);
+		const visibleSnapshot = getSlashRenderableSnapshot!(visibleDetails);
+		assert.equal((visibleSnapshot.result.content[0] as { text?: string }).text, "Configured child finished");
+		registration.dispose();
+	});
+
+	it("/run collapses tool detail before showing its initial live card", async () => {
+		const log: string[] = [];
+		const commands = new Map<string, RegisteredSlashCommand>();
+		const events = createEventBus();
+		events.on(SLASH_SUBAGENT_REQUEST_EVENT, (data) => {
+			const requestId = (data as { requestId: string }).requestId;
+			events.emit(SLASH_SUBAGENT_STARTED_EVENT, { requestId });
+			events.emit(SLASH_SUBAGENT_RESPONSE_EVENT, { requestId, result: { content: [{ type: "text", text: "done" }], details: { mode: "single", results: [] } }, isError: false });
+		});
+		const pi = {
+			events, on() { return () => {}; }, registerTool() {},
+			registerCommand(name: string, spec: RegisteredSlashCommand) { commands.set(name, spec); }, registerShortcut() {},
+			sendMessage() { log.push("send"); },
+		};
+		const registration = registerAgent({ pi: pi as never, name: "configured-agent", definition: { description: "Configured", systemPrompt: "Follow the task." } });
+		try {
+			registerSlashCommands!(pi, createState(process.cwd()));
+			await commands.get("run")!.handler("configured-agent inspect", createCommandContext({ hasUI: true, setToolsExpanded: (expanded) => log.push(`expanded:${String(expanded)}`) }));
+			assert.deepEqual(log.slice(0, 2), ["expanded:false", "send"]);
+		} finally { registration.dispose(); }
+	});
+
+	it("/run finalizes an error snapshot before its final UI redraw", async () => {
+		const sent: unknown[] = [];
+		const log: string[] = [];
+		const commands = new Map<string, RegisteredSlashCommand>();
+		const events = createEventBus();
+		events.on(SLASH_SUBAGENT_REQUEST_EVENT, (data) => {
+			const requestId = (data as { requestId: string }).requestId;
+			events.emit(SLASH_SUBAGENT_STARTED_EVENT, { requestId });
+			events.emit(SLASH_SUBAGENT_RESPONSE_EVENT, { requestId, result: { content: [{ type: "text", text: "Configured child failed" }], details: { mode: "single", results: [] } }, isError: true, errorText: "Configured child failed" });
+		});
+		const pi = {
+			events, on() { return () => {}; }, registerTool() {},
+			registerCommand(name: string, spec: RegisteredSlashCommand) { commands.set(name, spec); }, registerShortcut() {},
+			sendMessage(message: unknown) { sent.push(message); log.push(`send:${(message as { display?: boolean }).display === false ? "hidden" : "visible"}`); },
+		};
+		const registration = registerAgent({ pi: pi as never, name: "configured-agent", definition: { description: "Configured", systemPrompt: "Follow the task." } });
+		try {
+			registerSlashCommands!(pi, createState(process.cwd()));
+			await commands.get("run")!.handler("configured-agent inspect", createCommandContext({ hasUI: true, setStatus: (_key, text) => log.push(`status:${text ?? "clear"}`) }));
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			assert.deepEqual(log, ["send:visible", "status:running...", "send:hidden", "status:clear"]);
+			const details = resolveSlashMessageDetails!((sent[0] as { details?: unknown }).details);
+			assert.ok(details);
+			assert.equal((getSlashRenderableSnapshot!(details).result.content[0] as { text?: string }).text, "Configured child failed");
+		} finally { registration.dispose(); }
+	});
+
+	it("/subagents-refine dispatches both the target and explicit proposal agent", async () => {
+		await withTempProject("pi-slash-refine-", async (root) => {
+			for (const name of ["configured-target", "configured-proposer"]) {
+				fs.writeFileSync(path.join(root, ".pi", "agents", `${name}.md`), `---\nname: ${name}\ndescription: ${name}\n---\nFollow the task.\n`);
+			}
+			const result = await captureSlashCommandParams("subagents-refine", "configured-target configured-proposer", root);
+			assert.deepEqual(result.params, { action: "refine", agent: "configured-target", proposalAgent: "configured-proposer" });
+		});
 	});
 
 	it("/run reports discovery evidence for a missing agent", async () => {
@@ -1184,150 +1253,6 @@ Inspect
 				async: false,
 			});
 		});
-	});
-
-	it("/run finalizes the slash snapshot before the last UI redraw on success", async () => {
-		const sent: unknown[] = [];
-		const log: string[] = [];
-		const commands = new Map<string, { handler(args: string, ctx: unknown): Promise<void> }>();
-		const events = createEventBus();
-		events.on(SLASH_SUBAGENT_REQUEST_EVENT, (data) => {
-			const requestId = (data as { requestId: string }).requestId;
-			events.emit(SLASH_SUBAGENT_STARTED_EVENT, { requestId });
-			events.emit(SLASH_SUBAGENT_RESPONSE_EVENT, {
-				requestId,
-				result: {
-					content: [{ type: "text", text: "Scout finished" }],
-					details: { mode: "single", results: [{ sessionFile: "/tmp/child-session.jsonl" }] },
-				},
-				isError: false,
-			});
-		});
-
-		const pi = {
-			events,
-			registerCommand(name: string, spec: { handler(args: string, ctx: unknown): Promise<void> }) {
-				commands.set(name, spec);
-			},
-			registerShortcut() {},
-			sendMessage(message: unknown) {
-				sent.push(message);
-				log.push(`send:${(message as { display?: boolean }).display === false ? "hidden" : "visible"}`);
-			},
-		};
-
-		registerSlashCommands!(pi, createState(process.cwd()));
-		await commands.get("run")!.handler("scout inspect this", createCommandContext({
-			hasUI: true,
-			setStatus: (_key, text) => {
-				log.push(`status:${text ?? "clear"}`);
-			},
-		}));
-		await new Promise<void>((resolve) => setImmediate(resolve));
-
-		assert.equal(sent.length, 2);
-		assert.equal((sent[0] as { customType?: string; display?: boolean }).customType, SLASH_RESULT_TYPE);
-		assert.equal((sent[0] as { display?: boolean }).display, true);
-		assert.equal((sent[0] as { content?: string }).content, "inspect this");
-		assert.equal((sent[1] as { customType?: string; display?: boolean }).customType, SLASH_RESULT_TYPE);
-		assert.equal((sent[1] as { display?: boolean }).display, false);
-		assert.match((sent[1] as { content?: string }).content ?? "", /Scout finished/);
-		assert.match((sent[1] as { content?: string }).content ?? "", /Child session exports\n\n- `\/tmp\/child-session\.jsonl`/);
-		assert.deepEqual(log, ["send:visible", "status:running...", "send:hidden", "status:clear"]);
-
-		const visibleDetails = resolveSlashMessageDetails!((sent[0] as { details?: unknown }).details);
-		assert.ok(visibleDetails);
-		const visibleSnapshot = getSlashRenderableSnapshot!(visibleDetails!);
-		assert.equal((visibleSnapshot.result.content[0] as { text?: string }).text, "Scout finished");
-	});
-
-	it("/run collapses tool detail before showing the initial live card", async () => {
-		const log: string[] = [];
-		const commands = new Map<string, { handler(args: string, ctx: unknown): Promise<void> }>();
-		const events = createEventBus();
-		events.on(SLASH_SUBAGENT_REQUEST_EVENT, (data) => {
-			const requestId = (data as { requestId: string }).requestId;
-			events.emit(SLASH_SUBAGENT_STARTED_EVENT, { requestId });
-			events.emit(SLASH_SUBAGENT_RESPONSE_EVENT, {
-				requestId,
-				result: { content: [{ type: "text", text: "done" }], details: { mode: "single", results: [] } },
-				isError: false,
-			});
-		});
-
-		const pi = {
-			events,
-			registerCommand(name: string, spec: { handler(args: string, ctx: unknown): Promise<void> }) {
-				commands.set(name, spec);
-			},
-			registerShortcut() {},
-			sendMessage() {
-				log.push("send");
-			},
-		};
-
-		registerSlashCommands!(pi, createState(process.cwd()));
-		await commands.get("run")!.handler("scout inspect this", createCommandContext({
-			hasUI: true,
-			setToolsExpanded: (expanded) => log.push(`expanded:${String(expanded)}`),
-		}));
-
-		assert.deepEqual(log.slice(0, 2), ["expanded:false", "send"]);
-	});
-
-	it("/run finalizes the slash snapshot before the last UI redraw on error", async () => {
-		const sent: unknown[] = [];
-		const log: string[] = [];
-		const commands = new Map<string, { handler(args: string, ctx: unknown): Promise<void> }>();
-		const events = createEventBus();
-		events.on(SLASH_SUBAGENT_REQUEST_EVENT, (data) => {
-			const requestId = (data as { requestId: string }).requestId;
-			events.emit(SLASH_SUBAGENT_STARTED_EVENT, { requestId });
-			events.emit(SLASH_SUBAGENT_RESPONSE_EVENT, {
-				requestId,
-				result: {
-					content: [{ type: "text", text: "Subagent failed" }],
-					details: { mode: "single", results: [] },
-				},
-				isError: true,
-				errorText: "Subagent failed",
-			});
-		});
-
-		const pi = {
-			events,
-			registerCommand(name: string, spec: { handler(args: string, ctx: unknown): Promise<void> }) {
-				commands.set(name, spec);
-			},
-			registerShortcut() {},
-			sendMessage(message: unknown) {
-				sent.push(message);
-				log.push(`send:${(message as { display?: boolean }).display === false ? "hidden" : "visible"}`);
-			},
-		};
-
-		registerSlashCommands!(pi, createState(process.cwd()));
-		await commands.get("run")!.handler("scout inspect this", createCommandContext({
-			hasUI: true,
-			setStatus: (_key, text) => {
-				log.push(`status:${text ?? "clear"}`);
-			},
-		}));
-		await new Promise<void>((resolve) => setImmediate(resolve));
-
-		assert.equal(sent.length, 2);
-		assert.equal((sent[0] as { customType?: string; display?: boolean }).customType, SLASH_RESULT_TYPE);
-		assert.equal((sent[0] as { display?: boolean }).display, true);
-		assert.equal((sent[0] as { content?: string }).content, "inspect this");
-		assert.equal((sent[1] as { customType?: string; display?: boolean }).customType, SLASH_RESULT_TYPE);
-		assert.equal((sent[1] as { display?: boolean }).display, false);
-		assert.match((sent[1] as { content?: string }).content ?? "", /Subagent failed/);
-		assert.deepEqual(log, ["send:visible", "status:running...", "send:hidden", "status:clear"]);
-
-		const visibleDetails = resolveSlashMessageDetails!((sent[0] as { details?: unknown }).details);
-		assert.ok(visibleDetails);
-		const visibleSnapshot = getSlashRenderableSnapshot!(visibleDetails!);
-		assert.equal((visibleSnapshot.result.content[0] as { text?: string }).text, "Subagent failed");
 	});
 
 	it("/run accepts dotted packaged runtime agent names", async () => {

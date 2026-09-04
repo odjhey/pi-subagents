@@ -111,49 +111,23 @@ describe("PI_CODING_AGENT_DIR runtime paths", () => {
 		assert.deepEqual(loadConfig().forkContext, { mode: "pruned", model: "openai-codex/gpt-5.6-luna:max" });
 	});
 
-	it("discovers user agents, chains, and settings under the configured agent dir", () => {
+	it("discovers and manages user agents, chains, and settings under the configured agent dir", () => {
 		const settingsPath = path.join(agentDir, "settings.json");
-		writeFile(path.join(agentDir, "agents", "env-agent.md"), `---
-name: env-agent
-description: Env agent
----
-
-Use env agent.
-`);
-		writeFile(path.join(agentDir, "chains", "env-chain.chain.md"), `---
-name: env-chain
-description: Env chain
----
-
-## env-agent
-
-Inspect env.
-`);
-		writeFile(settingsPath, JSON.stringify({
-			subagents: {
-				agentOverrides: {
-					worker: { systemPrompt: "Use env-rooted settings." },
-				},
-			},
-		}, null, 2));
+		writeFile(path.join(agentDir, "agents", "env-agent.md"), `---\nname: env-agent\ndescription: Env agent\n---\nUse env agent.\n`);
+		writeFile(path.join(agentDir, "chains", "env-chain.chain.md"), `---\nname: env-chain\ndescription: Env chain\n---\n## env-agent\nInspect env.\n`);
+		writeFile(settingsPath, JSON.stringify({ subagents: { agentOverrides: { "env-agent": { systemPrompt: "Use env-rooted settings." } } } }, null, 2));
 
 		const discovered = discoverAgentsAll(cwd);
 		assert.equal(discovered.userDir, path.join(agentDir, "agents"));
 		assert.equal(discovered.userChainDir, path.join(agentDir, "chains"));
 		assert.equal(discovered.userSettingsPath, settingsPath);
-		assert.ok(discovered.user.find((agent) => agent.name === "env-agent" && agent.filePath === path.join(agentDir, "agents", "env-agent.md")));
-		assert.ok(discovered.chains.find((chain) => chain.name === "env-chain" && chain.filePath === path.join(agentDir, "chains", "env-chain.chain.md")));
-
-		const worker = discovered.builtin.find((agent) => agent.name === "worker");
-		assert.equal(worker?.systemPrompt, "Use env-rooted settings.");
-		assert.equal(worker?.override?.path, settingsPath);
-		assert.equal(worker?.override?.scope, "user");
+		const configured = discovered.user.find((agent) => agent.name === "env-agent");
+		assert.equal(configured?.systemPrompt, "Use env-rooted settings.");
+		assert.equal(configured?.override?.path, settingsPath);
+		assert.ok(discovered.chains.some((chain) => chain.name === "env-chain"));
 
 		const createdName = "created-env-agent";
-		const created = handleCreate(
-			{ config: { name: createdName, description: "Created in env dir", scope: "user" } },
-			{ cwd, modelRegistry: { getAvailable: () => [] } },
-		);
+		const created = handleCreate({ config: { name: createdName, description: "Created in env dir", scope: "user" } }, { cwd, modelRegistry: { getAvailable: () => [] } });
 		assert.equal(created.isError, false, readText(created));
 		assert.equal(fs.existsSync(path.join(agentDir, "agents", `${createdName}.md`)), true);
 	});

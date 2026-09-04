@@ -46,6 +46,7 @@ describe("proactive skill subagent recommendations", () => {
 				{ name: "accessibility", description: "Accessibility review." },
 				{ name: "deslop", description: "Cleanup review." },
 			],
+			config: { preferredAgent: "reviewer" },
 		});
 
 		assert.equal(recommendations.length, 1);
@@ -71,8 +72,10 @@ describe("proactive skill subagent recommendations", () => {
 		assert.ok(recommendations.every((entry) => entry.agent === "delegate"));
 	});
 
-	it("can be disabled and formats guardrails for visible suggestions", () => {
+	it("requires an explicitly configured preferred agent and can be disabled", () => {
 		assert.equal(resolveProactiveSkillSubagentsConfig(false).enabled, false);
+		assert.equal(resolveProactiveSkillSubagentsConfig().preferredAgent, undefined);
+		assert.deepEqual(recommendProactiveSkillSubagents({ agents: [agent("reviewer", ["deslop"]), agent("cleanup", ["deslop"])], availableSkills: [{ name: "deslop" }] }), []);
 		assert.deepEqual(recommendProactiveSkillSubagents({
 			agents: [agent("reviewer", ["deslop"]), agent("cleanup", ["deslop"])],
 			availableSkills: [{ name: "deslop" }],

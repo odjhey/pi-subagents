@@ -109,21 +109,6 @@ describe("agent management config parsing", () => {
 		assert.equal(JSON.stringify(capabilities).includes("SYSTEM_PROMPT_SENTINEL"), false);
 	});
 
-	it("reports bundled reviewer supervisor contact without mutation tools in capabilities", () => {
-		const listed = handleManagementAction("list", { agentScope: "project", capabilities: true }, {
-			cwd: tempDir,
-			modelRegistry: { getAvailable: () => [] },
-		});
-
-		assert.equal(listed.isError, false);
-		const capabilities = listed.details?.agentCapabilities;
-		assert.ok(capabilities);
-		const reviewer = capabilities.agents.find((agent) => agent.name === "reviewer");
-		assert.ok(reviewer, "reviewer builtin should be present in capability output");
-		assert.deepEqual(reviewer.tools.names, ["read", "grep", "find", "ls", "contact_supervisor"]);
-		assert.match(readText(listed), /Tools: read, grep, find, ls, contact_supervisor/);
-	});
-
 	it("reports passive external CLI availability for present and absent commands", () => {
 		const agentsDir = path.join(tempDir, ".pi", "agents");
 		fs.mkdirSync(agentsDir, { recursive: true });
@@ -179,55 +164,6 @@ Missing.
 		} finally {
 			if (previousPath === undefined) delete process.env.PATH;
 			else process.env.PATH = previousPath;
-		}
-	});
-
-	it("rejects management attempts to widen the reserved read-only Claude profile", () => {
-		const ctx = { cwd: tempDir, modelRegistry: { getAvailable: () => [] } };
-		const writerRunner = { type: "external-cli", adapter: "claude-code-writer", command: "claude" };
-		const unsafeCreate = handleCreate({ config: { name: "claude-code", description: "Unsafe shadow", scope: "project", runner: writerRunner } }, ctx);
-		assert.equal(unsafeCreate.isError, true);
-		assert.match(readText(unsafeCreate), /reserved for the read-only 'claude-code' adapter/);
-		const unsafeLocalName = handleCreate({ config: { name: "claude-code", package: "custom", description: "Unsafe local name", scope: "project", runner: writerRunner } }, ctx);
-		assert.equal(unsafeLocalName.isError, true);
-		assert.match(readText(unsafeLocalName), /Selection name 'claude-code' is reserved/);
-		const unsafeAlias = handleCreate({ config: { name: "aliased-writer", aliases: ["claude-code"], description: "Unsafe alias", scope: "project", runner: writerRunner } }, ctx);
-		assert.equal(unsafeAlias.isError, true);
-		assert.match(readText(unsafeAlias), /Selection name 'claude-code' is reserved/);
-
-		const readOnlyCreate = handleCreate({ config: { name: "claude-code", description: "Narrow shadow", scope: "project", runner: { type: "external-cli", adapter: "claude-code", command: "claude" } } }, ctx);
-		assert.equal(readOnlyCreate.isError, false);
-		const unsafeUpdate = handleUpdate({ agent: "claude-code", agentScope: "project", config: { runner: writerRunner } }, ctx);
-		assert.equal(unsafeUpdate.isError, true);
-		assert.match(readText(unsafeUpdate), /reserved for the read-only 'claude-code' adapter/);
-		assert.match(fs.readFileSync(path.join(tempDir, ".pi", "agents", "claude-code.md"), "utf-8"), /adapter: claude-code\n/);
-
-		const writerCreate = handleCreate({ config: { name: "custom-writer", description: "Writer", scope: "project", runner: writerRunner } }, ctx);
-		assert.equal(writerCreate.isError, false);
-		const unsafeAliasUpdate = handleUpdate({ agent: "custom-writer", agentScope: "project", config: { aliases: ["claude-code"] } }, ctx);
-		assert.equal(unsafeAliasUpdate.isError, true);
-		assert.match(readText(unsafeAliasUpdate), /Selection name 'claude-code' is reserved/);
-		const unsafeRename = handleUpdate({ agent: "custom-writer", agentScope: "project", config: { name: "claude-code" } }, ctx);
-		assert.equal(unsafeRename.isError, true);
-		assert.match(readText(unsafeRename), /reserved for the read-only 'claude-code' adapter/);
-	});
-
-	it("rejects create, update, alias, and rename widening for Codex and Cursor", () => {
-		const ctx = { cwd: tempDir, modelRegistry: { getAvailable: () => [] } };
-		for (const [readOnly, writer, command] of [["codex-exec", "codex-exec-writer", "codex"], ["cursor-agent", "cursor-agent-writer", "cursor-agent"]] as const) {
-			const writerRunner = { type: "external-cli", adapter: writer, command };
-			assert.equal(handleCreate({ config: { name: readOnly, description: "Unsafe shadow", scope: "project", runner: writerRunner } }, ctx).isError, true);
-			assert.equal(handleCreate({ config: { name: readOnly, package: `custom-${readOnly}`, description: "Unsafe local name", scope: "project", runner: writerRunner } }, ctx).isError, true);
-			assert.equal(handleCreate({ config: { name: `${readOnly}-alias`, aliases: [readOnly], description: "Unsafe alias", scope: "project", runner: writerRunner } }, ctx).isError, true);
-
-			const readOnlyCreate = handleCreate({ config: { name: readOnly, description: "Narrow shadow", scope: "project", runner: { type: "external-cli", adapter: readOnly, command } } }, ctx);
-			assert.equal(readOnlyCreate.isError, false);
-			assert.equal(handleUpdate({ agent: readOnly, agentScope: "project", config: { runner: writerRunner } }, ctx).isError, true);
-
-			const customName = `custom-${writer}`;
-			assert.equal(handleCreate({ config: { name: customName, description: "Writer", scope: "project", runner: writerRunner } }, ctx).isError, false);
-			assert.equal(handleUpdate({ agent: customName, agentScope: "project", config: { aliases: [readOnly] } }, ctx).isError, true);
-			assert.equal(handleUpdate({ agent: customName, agentScope: "project", config: { name: readOnly } }, ctx).isError, true);
 		}
 	});
 
@@ -1319,136 +1255,27 @@ Drive the failing test first.
 		assert.doesNotMatch(afterText, /Thinking: off/);
 	});
 
-	it("reports builtin runtime-loaded model mappings from current session state", () => {
-		const ctx = {
-			cwd: tempDir,
-			modelRegistry: {
-				getAvailable: () => [
-					{ provider: "openai", id: "gpt-5-mini" },
-					{ provider: "anthropic", id: "claude-sonnet-4" },
-				],
-			},
-			model: { provider: "openai", id: "gpt-5-mini" },
-		};
-
-		const result = handleManagementAction("models", {}, ctx);
-		const text = readText(result);
-		assert.equal(result.isError, false);
-		assert.match(text, /^Subagent models/m);
-		assert.match(text, /Current session model:\n  openai\/gpt-5-mini/);
-		assert.match(text, /(?:^|\n)scout\n  model:\n    openai\/gpt-5-mini\n  source: inherits current session model(?:\n|$)/);
-		assert.match(text, /(?:^|\n)advisor\n  model:\n    openai\/gpt-5-mini\n  source: inherits current session model(?:\n|$)/);
-		assert.doesNotMatch(text, /advisor\n  model:\n    \(builtin definition not found\)/);
-		assert.match(text, /Available models in this session's registry/);
-		assert.match(text, /  anthropic\/claude-sonnet-4\n  openai\/gpt-5-mini/);
-		assert.match(text, /Use an exact provider\/id from this list when you pass model/);
-	});
-
-	it("resolves the advisor builtin alias in a filtered model mapping", () => {
-		const result = handleManagementAction("models", { agent: "advisor" }, {
-			cwd: tempDir,
-			modelRegistry: { getAvailable: () => [{ provider: "openai", id: "gpt-5-mini" }] },
-			model: { provider: "openai", id: "gpt-5-mini" },
-		});
-		const text = readText(result);
-		assert.equal(result.isError, false);
-		assert.match(text, /Agent: advisor/);
-		assert.match(text, /Effective model:\n  openai\/gpt-5-mini/);
-		assert.doesNotMatch(text, /Builtin agent 'advisor' not found|source: missing/);
-	});
-
-	it("reports effective model mappings for discovered package, user, and project agents", () => {
+	it("reports effective model mappings for package, user, and project agents", () => {
 		const projectAgentsDir = path.join(tempDir, ".pi", "agents");
 		const userAgentsDir = path.join(tempDir, "agent-home", "agents");
 		const packageDir = path.join(tempDir, ".pi", "npm", "node_modules", "model-agents");
-		fs.mkdirSync(projectAgentsDir, { recursive: true });
-		fs.mkdirSync(userAgentsDir, { recursive: true });
-		fs.mkdirSync(path.join(packageDir, "agents"), { recursive: true });
-		fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({
-			name: "model-agents",
-			version: "1.2.3",
-			pi: { subagents: { agents: ["agents"] } },
-		}));
-		const writeAgent = (dir: string, name: string, model: string, thinking: string, fallback: string) => fs.writeFileSync(path.join(dir, `${name}.md`), [
-			"---",
-			`name: ${name}`,
-			`description: ${name} model mapping`,
-			`model: ${model}`,
-			`thinking: ${thinking}`,
-			`fallbackModels: ${fallback}`,
-			"---",
-			"Model mapping test agent.",
-		].join("\n"));
-		writeAgent(path.join(packageDir, "agents"), "package-worker", "anthropic/claude-sonnet-4", "low", "openai/gpt-5-mini");
-		writeAgent(userAgentsDir, "user-worker", "gpt-5-mini", "medium", "claude-sonnet-4");
-		writeAgent(userAgentsDir, "shadowed", "openai/gpt-5-mini", "low", "anthropic/claude-sonnet-4");
-		writeAgent(projectAgentsDir, "project-worker", "anthropic/claude-sonnet-4", "high", "openai/gpt-5-mini");
-		writeAgent(projectAgentsDir, "shadowed", "openai/gpt-5-mini", "high", "anthropic/claude-sonnet-4");
-		fs.writeFileSync(path.join(projectAgentsDir, "off-worker.md"), [
-			"---",
-			"name: off-worker",
-			"description: off-worker model mapping",
-			"model: openai/gpt-5-mini",
-			"thinking: false",
-			"---",
-			"Explicitly disable thinking.",
-		].join("\n"));
-		const settingsPath = path.join(tempDir, ".pi", "settings.json");
-		fs.writeFileSync(settingsPath, JSON.stringify({ subagents: { agentOverrides: { reviewer: { disabled: true } } } }));
-
-		const ctx = {
+		for (const dir of [projectAgentsDir, userAgentsDir, path.join(packageDir, "agents")]) fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ name: "model-agents", pi: { subagents: { agents: ["agents"] } } }));
+		const writeModelAgent = (dir: string, name: string, model: string, thinking: string) => fs.writeFileSync(path.join(dir, `${name}.md`), `---\nname: ${name}\ndescription: ${name}\nmodel: ${model}\nthinking: ${thinking}\n---\nFollow the task.\n`);
+		writeModelAgent(path.join(packageDir, "agents"), "package-choice", "anthropic/claude-sonnet-4", "low");
+		writeModelAgent(userAgentsDir, "user-choice", "openai/gpt-5-mini", "medium");
+		writeModelAgent(projectAgentsDir, "project-choice", "anthropic/claude-sonnet-4", "high");
+		const result = handleManagementAction("models", {}, {
 			cwd: tempDir,
-			modelRegistry: { getAvailable: () => [
-				{ provider: "openai", id: "gpt-5-mini" },
-				{ provider: "anthropic", id: "claude-sonnet-4" },
-			] },
+			modelRegistry: { getAvailable: () => [{ provider: "openai", id: "gpt-5-mini" }, { provider: "anthropic", id: "claude-sonnet-4" }] },
 			model: { provider: "openai", id: "gpt-5-mini" },
-		};
-		const result = handleManagementAction("models", {}, ctx);
-		const text = readText(result);
+		});
+		const output = readText(result);
 		assert.equal(result.isError, false);
-		assert.match(text, /package-worker\n  model:\n    anthropic\/claude-sonnet-4\n  source: package agent config\n  thinking: low\n  fallback models:\n    openai\/gpt-5-mini/);
-		assert.match(text, /user-worker\n  model:\n    openai\/gpt-5-mini\n  source: user agent config\n  thinking: medium/);
-		assert.match(text, /project-worker\n  model:\n    anthropic\/claude-sonnet-4\n  source: project agent config\n  thinking: high/);
-		assert.match(text, /off-worker\n  model:\n    openai\/gpt-5-mini\n  source: project agent config\n  thinking: off/);
-		assert.match(text, /shadowed\n  model:\n    openai\/gpt-5-mini\n  source: project agent config/);
-		assert.doesNotMatch(text, /shadowed\n  model:\n    openai\/gpt-5-mini\n  source: user agent config/);
-		assert.match(text, /reviewer\n  model:\n    openai\/gpt-5-mini\n  source: inherits current session model; disabled/);
-		assert.doesNotMatch(text, /api[_-]?key|token|secret/i);
-	});
-
-	it("reports override source and disabled builtin state in runtime model mappings", () => {
-		const projectSettingsPath = path.join(tempDir, ".pi", "settings.json");
-		fs.mkdirSync(path.dirname(projectSettingsPath), { recursive: true });
-		fs.writeFileSync(projectSettingsPath, JSON.stringify({
-			subagents: {
-				agentOverrides: {
-					reviewer: { model: "claude-sonnet-4", disabled: true },
-				},
-			},
-		}, null, 2), "utf-8");
-
-		const ctx = {
-			cwd: tempDir,
-			modelRegistry: {
-				getAvailable: () => [
-					{ provider: "openai", id: "gpt-5-mini" },
-					{ provider: "anthropic", id: "claude-sonnet-4" },
-				],
-			},
-			model: { provider: "openai", id: "gpt-5-mini" },
-		};
-
-		const result = handleManagementAction("models", { agent: "reviewer" }, ctx);
-		const text = readText(result);
-		assert.equal(result.isError, false);
-		assert.match(text, /^Subagent model/m);
-		assert.match(text, /Agent: reviewer/);
-		assert.match(text, /Effective model:\n  anthropic\/claude-sonnet-4/);
-		assert.match(text, /Source: project override/);
-		assert.match(text, /Requested model setting:\n  claude-sonnet-4/);
-		assert.match(text, /Disabled: true/);
-		assert.match(text.replaceAll("\\", "/"), /Override file:\n  .*\.pi\/settings\.json/);
+		assert.match(output, /package-choice[\s\S]*source: package agent config[\s\S]*thinking: low/);
+		assert.match(output, /user-choice[\s\S]*source: user agent config[\s\S]*thinking: medium/);
+		assert.match(output, /project-choice[\s\S]*source: project agent config[\s\S]*thinking: high/);
+		assert.doesNotMatch(output, /api[_-]?key|token|secret/i);
 	});
 
 	it("rejects unknown agents for runtime model mappings", () => {
@@ -1459,48 +1286,6 @@ Drive the failing test first.
 
 		assert.equal(result.isError, true);
 		assert.match(readText(result), /Agent 'not-a-builtin' not found/);
-	});
-
-	it("creates delegate with its builtin prompt defaults", () => {
-		const result = handleCreate(
-			{ config: { name: "delegate", description: "Delegate helper", scope: "project" } },
-			{ cwd: tempDir, modelRegistry: { getAvailable: () => [] } },
-		);
-
-		assert.equal(result.isError, false);
-		const filePath = path.join(tempDir, ".pi", "agents", "delegate.md");
-		const content = fs.readFileSync(filePath, "utf-8");
-		assert.match(content, /systemPromptMode: append/);
-		assert.match(content, /inheritProjectContext: true/);
-		assert.match(content, /inheritSkills: false/);
-	});
-
-	it("lists proactive skill subagent suggestions from repeated configured skill use", () => {
-		const ctx = { cwd: tempDir, modelRegistry: { getAvailable: () => [] } };
-		fs.mkdirSync(path.join(tempDir, ".pi", "agents"), { recursive: true });
-		fs.mkdirSync(path.join(tempDir, ".pi", "skills", "deslop"), { recursive: true });
-		fs.writeFileSync(path.join(tempDir, ".pi", "skills", "deslop", "SKILL.md"), `---
-description: Cleanup review.
----
-
-Review for cleanup.
-`, "utf-8");
-		for (const name of ["cleanup-a", "cleanup-b"]) {
-			fs.writeFileSync(path.join(tempDir, ".pi", "agents", `${name}.md`), `---
-name: ${name}
-description: Cleanup ${name}
-skills: deslop
----
-
-Inspect cleanup.
-`, "utf-8");
-		}
-
-		const listed = handleManagementAction("list", {}, ctx);
-		const text = readText(listed);
-		assert.match(text, /Proactive skill subagent suggestions:/);
-		assert.match(text, /- deslop via reviewer/);
-		assert.match(text, /Cleanup review\./);
 	});
 
 	it("can disable proactive skill subagent suggestions in config", () => {

@@ -55,18 +55,10 @@ describe("subagents.defaultExtensions", () => {
 	});
 
 	it("preserves ambient discovery when omitted and disables it when empty", () => {
-		let scout = discoverAgentsAll(tempProject).builtin.find(
-			(agent) => agent.name === "scout",
-		);
-		assert.equal(scout?.extensions, undefined);
-
-		writeJson(path.join(tempHome, ".pi", "agent", "settings.json"), {
-			subagents: { defaultExtensions: [] },
-		});
-		scout = discoverAgentsAll(tempProject).builtin.find(
-			(agent) => agent.name === "scout",
-		);
-		assert.deepEqual(scout?.extensions, []);
+		writeProjectAgent("configured-agent");
+		assert.equal(discoverAgents(tempProject, "both").agents.find((agent) => agent.name === "configured-agent")?.extensions, undefined);
+		writeJson(path.join(tempHome, ".pi", "agent", "settings.json"), { subagents: { defaultExtensions: [] } });
+		assert.deepEqual(discoverAgents(tempProject, "both").agents.find((agent) => agent.name === "configured-agent")?.extensions, []);
 	});
 
 	it("applies the allowlist only when an agent has no extensions field", () => {
@@ -94,31 +86,25 @@ describe("subagents.defaultExtensions", () => {
 
 	it("supports per-agent extensions through agentOverrides", () => {
 		writeJson(path.join(tempHome, ".pi", "agent", "settings.json"), {
-			subagents: {
-				defaultExtensions: [],
-				agentOverrides: {
-					scout: { extensions: ["./scout.ts"] },
-					inherited: { extensions: ["./inherited.ts"] },
-					explicit: { extensions: ["./ignored.ts"] },
-				},
-			},
+			subagents: { defaultExtensions: [], agentOverrides: { inherited: { extensions: ["./inherited.ts"] }, explicit: { extensions: ["./override.ts"] } } },
 		});
 		writeProjectAgent("inherited");
 		writeProjectAgent("explicit", "./frontmatter.ts");
-
 		const agents = discoverAgents(tempProject, "both").agents;
-		assert.deepEqual(
-			agents.find((agent) => agent.name === "scout")?.extensions,
-			["./scout.ts"],
-		);
-		assert.deepEqual(
-			agents.find((agent) => agent.name === "inherited")?.extensions,
-			["./inherited.ts"],
-		);
-		assert.deepEqual(
-			agents.find((agent) => agent.name === "explicit")?.extensions,
-			["./ignored.ts"],
-		);
+		assert.deepEqual(agents.find((agent) => agent.name === "inherited")?.extensions, ["./inherited.ts"]);
+		assert.deepEqual(agents.find((agent) => agent.name === "explicit")?.extensions, ["./override.ts"]);
+	});
+
+	it("uses project settings over user settings while respecting discovery scope", () => {
+		writeProjectAgent("project-agent");
+		const userAgentPath = path.join(tempHome, ".pi", "agent", "agents", "user-agent.md");
+		fs.mkdirSync(path.dirname(userAgentPath), { recursive: true });
+		fs.writeFileSync(userAgentPath, "---\nname: user-agent\ndescription: User agent\n---\nTest.\n");
+		writeJson(path.join(tempHome, ".pi", "agent", "settings.json"), { subagents: { defaultExtensions: ["./user.ts"] } });
+		writeJson(path.join(tempProject, ".pi", "settings.json"), { subagents: { defaultExtensions: [] } });
+		assert.deepEqual(discoverAgents(tempProject, "both").agents.find((agent) => agent.name === "project-agent")?.extensions, []);
+		assert.deepEqual(discoverAgents(tempProject, "user").agents.find((agent) => agent.name === "user-agent")?.extensions, ["./user.ts"]);
+		assert.deepEqual(discoverAgents(tempProject, "project").agents.find((agent) => agent.name === "project-agent")?.extensions, []);
 	});
 
 	it("does not serialize settings-derived extensions during unrelated updates", () => {
@@ -173,34 +159,6 @@ describe("subagents.defaultExtensions", () => {
 		);
 
 		assert.deepEqual(override, { extensions: ["./agent.ts"] });
-	});
-
-	it("uses project settings over user settings while respecting discovery scope", () => {
-		writeJson(path.join(tempHome, ".pi", "agent", "settings.json"), {
-			subagents: { defaultExtensions: ["./user.ts"] },
-		});
-		writeJson(path.join(tempProject, ".pi", "settings.json"), {
-			subagents: { defaultExtensions: [] },
-		});
-
-		assert.deepEqual(
-			discoverAgents(tempProject, "both").agents.find(
-				(agent) => agent.name === "scout",
-			)?.extensions,
-			[],
-		);
-		assert.deepEqual(
-			discoverAgents(tempProject, "user").agents.find(
-				(agent) => agent.name === "scout",
-			)?.extensions,
-			["./user.ts"],
-		);
-		assert.deepEqual(
-			discoverAgents(tempProject, "project").agents.find(
-				(agent) => agent.name === "scout",
-			)?.extensions,
-			[],
-		);
 	});
 
 	it("rejects malformed values", () => {

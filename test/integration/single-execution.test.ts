@@ -949,7 +949,7 @@ describe("single sync execution", { skip: !available ? "pi packages not availabl
 		mockPi.onCall({ output: "Named review completed" });
 		const result = await makeExecutor([makeAgent("reviewer")]).executePublic(
 			"named-review-resource",
-			{ workflow: "review", args: { task: "Review the change" }, async: false },
+			{ workflow: "review", args: { agent: "reviewer", task: "Review the change" }, async: false },
 			new AbortController().signal,
 			undefined,
 			makeMinimalCtx(tempDir),
@@ -3133,7 +3133,7 @@ describe("single sync execution", { skip: !available ? "pi packages not availabl
 		mockPi.onCall({ output: "Read-only review completed.", matchArgIncludes: "Review the persisted implementation report without editing it" });
 		const executor = makeExecutor([
 			makeAgent("worker", { tools: ["read", "write"], completionGuard: false }),
-			makeAgent("reviewer", { tools: ["read"], completionGuard: false }),
+			makeAgent("reviewer", { tools: ["read"], acceptanceRole: "read-only", completionGuard: false }),
 		]);
 
 		const result = await executor.execute(
@@ -4469,6 +4469,10 @@ describe("single sync execution", { skip: !available ? "pi packages not availabl
 				return () => undefined;
 			},
 		});
+		const agentsDir = path.join(tempDir, ".pi", "agents");
+		fs.mkdirSync(agentsDir, { recursive: true });
+		fs.writeFileSync(path.join(agentsDir, "worker.md"), "---\nname: worker\ndescription: Custom first node\n---\nFollow the explicit task.\n");
+		fs.writeFileSync(path.join(agentsDir, "reviewer.md"), "---\nname: reviewer\ndescription: Custom second node\n---\nFollow the explicit task.\n");
 		const ctx = {
 			...makeMinimalCtx(tempDir),
 			modelRegistry: {
@@ -7096,18 +7100,17 @@ describe("single sync execution", { skip: !available ? "pi packages not availabl
 		assert.equal(fs.readFileSync(outputPath, "utf-8"), "fresh assistant output");
 	});
 
-	it("top-level reviewer runs do not inherit bundled chain artifact reads", { skip: !createSubagentExecutor ? "executor not importable" : undefined }, async () => {
+	it("a custom top-level agent does not inherit workflow artifact reads", { skip: !createSubagentExecutor ? "executor not importable" : undefined }, async () => {
 		fs.writeFileSync(path.join(tempDir, "plan.md"), "chain plan");
 		fs.writeFileSync(path.join(tempDir, "progress.md"), "chain progress");
 		mockPi.onCall({ output: "Review done" });
-		const reviewer = discoverAgents(tempDir, "project").agents.find((agent) => agent.name === "reviewer");
-		assert.ok(reviewer, "expected bundled reviewer");
+		const reviewer = makeAgent("configured-check", { acceptanceRole: "read-only" });
 		assert.equal(reviewer.defaultReads, undefined);
 		const executor = makeExecutor([reviewer]);
 
 		await executor.execute(
 			"single-reviewer-without-chain-artifacts",
-			{ agent: "reviewer", task: "Review the supplied files." },
+			{ agent: "configured-check", task: "Review the supplied files without editing." },
 			new AbortController().signal,
 			undefined,
 			makeMinimalCtx(tempDir),

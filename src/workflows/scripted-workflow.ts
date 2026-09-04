@@ -773,7 +773,7 @@ function isSyntaxError(error) {
   return error instanceof SyntaxError || error?.name === "SyntaxError";
 }
 
-const NESTED_ASYNC_WORKFLOW_ERROR = "workflowScript validation failed before child launch; no children launched. workflowScript does not support nested async functions. Use top-level await, plain helper functions that return runs.run(...), or explicit Promise chains so workflows stay portable across Node and Bun. Parallel plus sequential rewrite: const a = runs.run(\"a\", { agent: \"worker\", task: \"A\" }); const writer = await runs.run(\"writer\", { agent: \"worker\", task: \"Write\" }); const review = await runs.run(\"review\", { agent: \"reviewer\", task: writer.output }); const [aResult] = await Promise.all([a]); return { a: aResult.output, issue: { writerRunId: writer.runId, reviewRunId: review.runId } };";
+const NESTED_ASYNC_WORKFLOW_ERROR = "workflowScript validation failed before child launch; no children launched. workflowScript does not support nested async functions. Use top-level await, plain helper functions that return runs.run(...), or explicit Promise chains so workflows stay portable across Node and Bun. Parallel plus sequential rewrite: const a = runs.run(\"a\", { agent: \"configured-a\", task: \"A\" }); const writer = await runs.run(\"writer\", { agent: \"configured-b\", task: \"Write\" }); const review = await runs.run(\"review\", { agent: \"configured-c\", task: writer.output }); const [aResult] = await Promise.all([a]); return { a: aResult.output, issue: { writerRunId: writer.runId, reviewRunId: review.runId } };";
 const AST_SCALAR_KEYS = new Set(["type", "start", "end"]);
 
 function assertPortableWorkflowScript(source) {
@@ -1242,7 +1242,6 @@ function isExplicitReadOnlyRecoveryReview(params: Record<string, unknown>): bool
 		.replace(new RegExp(RECOVERY_REVIEW_READ_ONLY_PATTERN.source, "gi"), " ");
 	return params.acceptance === false
 		&& agent !== ""
-		&& /\b(?:advisor|oracle|review|reviewer)\b/i.test(agent)
 		&& RECOVERY_REVIEW_READ_ONLY_PATTERN.test(task)
 		&& !RECOVERY_REVIEW_DESTRUCTIVE_COMMAND_PATTERN.test(taskDestructiveCommandText)
 		&& !RECOVERY_REVIEW_MUTATION_VERB_PATTERN.test(taskMutationText)

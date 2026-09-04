@@ -344,14 +344,14 @@ Review carefully.`);
 		assert.equal(discovered.agentDiagnostics?.find((diagnostic) => diagnostic.name === "broken")?.filePath, path.join(linkedAgents, "broken.md"));
 	}));
 
-	it("keeps a lower-priority agent available when a project override is malformed", () => withTempHome(() => {
+	it("keeps a lower-priority user agent available when a project override is malformed", () => withTempHome((home) => {
 		const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-invalid-agent-shadow-"));
 		tempDirs.push(project);
-		writeAgent(path.join(project, ".pi", "agents", "reviewer.md"), "---\nname: reviewer\ndescription: Broken reviewer\nrunner:\n  type: unknown\n---\nBody");
-
+		writeAgent(path.join(home, ".pi", "agent", "agents", "configured.md"), "---\nname: configured\ndescription: User fallback\n---\nBody");
+		writeAgent(path.join(project, ".pi", "agents", "configured.md"), "---\nname: configured\ndescription: Broken project agent\nrunner:\n  type: unknown\n---\nBody");
 		const discovered = discoverAgents(project, "both");
-		assert.equal(discovered.agents.find((agent) => agent.name === "reviewer")?.source, "builtin");
-		assert.equal(discovered.agentDiagnostics?.find((diagnostic) => diagnostic.name === "reviewer")?.source, "project");
+		assert.equal(discovered.agents.find((agent) => agent.name === "configured")?.source, "user");
+		assert.equal(discovered.agentDiagnostics?.find((diagnostic) => diagnostic.name === "configured")?.source, "project");
 	}));
 
 	it("records the runtime name for malformed packaged agents", () => withTempHome(() => {
@@ -405,24 +405,15 @@ body`);
 		assert.match(handleManagementAction("get", { agent: "developer" }, ctx).content[0]?.text ?? "", /Agent: worker/);
 	}));
 
-	it("reports management alias collisions as ambiguous", () => withTempHome(() => {
+	it("reports collisions between aliases of custom agents as ambiguous", () => withTempHome(() => {
 		const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-alias-collision-"));
 		tempDirs.push(project);
-		writeAgent(path.join(project, ".pi", "agents", "review-agent.md"), `---
-name: review-agent
-description: Custom reviewer
-aliases: developer
----
-body`);
-
+		writeAgent(path.join(project, ".pi", "agents", "first.md"), "---\nname: first\ndescription: First\naliases: shared-alias\n---\nBody");
+		writeAgent(path.join(project, ".pi", "agents", "second.md"), "---\nname: second\ndescription: Second\naliases: shared-alias\n---\nBody");
 		const ctx = { cwd: project, modelRegistry: { getAvailable: () => [] } };
-		const getResult = handleManagementAction("get", { agent: "developer" }, ctx);
-		assert.equal(getResult.isError, true);
-		assert.match(getResult.content[0]?.text ?? "", /Ambiguous agent alias or name 'developer': review-agent, worker/);
-
-		const disableResult = handleManagementAction("disable", { agent: "developer" }, ctx);
-		assert.equal(disableResult.isError, true);
-		assert.match(disableResult.content[0]?.text ?? "", /Ambiguous agent alias 'developer': worker, review-agent|Ambiguous agent alias 'developer': review-agent, worker/);
+		const result = handleManagementAction("get", { agent: "shared-alias" }, ctx);
+		assert.equal(result.isError, true);
+		assert.match(result.content[0]?.text ?? "", /Ambiguous agent alias or name 'shared-alias': (?:first, second|second, first)/);
 	}));
 });
 
@@ -611,63 +602,6 @@ Do work
 		const result = discoverAgents(dir, "project");
 		const worker = result.agents.find((agent) => agent.name === "worker");
 		assert.equal(worker?.defaultContext, "fork");
-	});
-
-	it("loads packaged worker and oracle with fork defaultContext and advisor alias", () => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-builtin-default-context-"));
-		tempDirs.push(dir);
-		const agents = discoverAgentsAll(dir).builtin;
-
-		for (const name of ["worker", "oracle"]) {
-			const agent = agents.find((candidate) => candidate.name === name);
-			assert.equal(agent?.defaultContext, "fork", `${name} should default to fork context`);
-		}
-		const oracle = agents.find((candidate) => candidate.name === "oracle");
-		assert.deepEqual(oracle?.aliases, ["advisor"]);
-		assert.doesNotMatch(oracle?.tools?.join(",") ?? "", /contact_supervisor/);
-		for (const name of ["scout", "researcher", "oracle", "reviewer"]) {
-			assert.equal(agents.find((candidate) => candidate.name === name)?.tools?.includes("intercom"), false, `${name} should not require generic intercom`);
-		}
-		assert.match(oracle?.systemPrompt ?? "", /asking or consulting the oracle/);
-		assert.match(oracle?.systemPrompt ?? "", /When runtime bridge instructions provide `contact_supervisor`/);
-		assert.match(oracle?.systemPrompt ?? "", /If no supervisor channel is available/);
-		assert.equal(agents.some((candidate) => candidate.name === "planner"), false);
-		assert.equal(agents.some((candidate) => candidate.name === "context-builder"), false);
-		assert.equal(agents.some((candidate) => candidate.name === "gpt-pro"), false);
-	});
-
-	it("keeps bundled agent definitions from module load during package file updates", () => {
-		const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-builtin-hot-update-"));
-		tempDirs.push(fixture);
-		fs.cpSync(path.join(process.cwd(), "src"), path.join(fixture, "src"), { recursive: true });
-		fs.cpSync(path.join(process.cwd(), "agents"), path.join(fixture, "agents"), { recursive: true });
-		fs.symlinkSync(path.join(process.cwd(), "node_modules"), path.join(fixture, "node_modules"), process.platform === "win32" ? "junction" : "dir");
-		writeJson(path.join(fixture, "package.json"), { type: "module" });
-		writeAgent(path.join(fixture, "challenge.mjs"), `
-import assert from "node:assert/strict";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { discoverAgentsAll } from "./src/agents/agents.ts";
-
-const scoutPath = path.join(process.cwd(), "agents", "scout.md");
-fs.writeFileSync(scoutPath, \`---
-name: scout
-description: Future scout
-runner:
-  type: future-runner
----
-
-Review with the future runner.
-\`, "utf-8");
-
-const discovered = discoverAgentsAll(process.cwd());
-const scout = discovered.builtin.find((candidate) => candidate.name === "scout");
-
-		assert.equal(scout?.runner, undefined);
-		assert.equal(discovered.agentDiagnostics?.some((diagnostic) => diagnostic.filePath === scoutPath), false);
-`);
-
-		execFileSync(process.execPath, ["--experimental-strip-types", "challenge.mjs"], { cwd: fixture, stdio: "pipe" });
 	});
 });
 
@@ -1064,89 +998,31 @@ Plan outer project work.
 		assert.equal(agent, undefined);
 	}));
 
-	it("can resolve project packages and overrides from the git root", () => withTempHome(() => {
+	it("resolves configured packages from the git root", () => withTempHome(() => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-git-root-resolution-"));
 		tempDirs.push(dir);
 		const nested = path.join(dir, "packages", "app", "src");
-		const nestedConfigDir = path.join(dir, "packages", "app", ".pi");
 		const packageRoot = path.join(dir, ".pi", "npm", "node_modules", "outer-workflow");
+		fs.mkdirSync(path.join(dir, "packages", "app", ".pi"), { recursive: true });
 		fs.mkdirSync(nested, { recursive: true });
-		fs.mkdirSync(nestedConfigDir, { recursive: true });
 		fs.writeFileSync(path.join(dir, ".git"), "gitdir: ../.git/worktrees/app\n", "utf-8");
-		writeJson(path.join(dir, ".pi", "settings.json"), {
-			subagents: {
-				projectRootResolution: "git-root",
-				agentOverrides: {
-					reviewer: { model: "openai/gpt-5.4" },
-				},
-			},
-		});
-		writeJson(path.join(packageRoot, "package.json"), {
-			name: "outer-workflow",
-			"pi-subagents": { agents: ["./agents"] },
-		});
-		writeAgent(path.join(packageRoot, "agents", "planner.md"), `---
-name: planner
-package: outer-workflow
-description: Plan from the outer project package.
----
-
-Plan outer project work.
-`);
-
-		const agents = discoverAgents(nested, "both").agents;
-		const packageAgent = agents.find((candidate) => candidate.name === "outer-workflow.planner");
-		assert.ok(packageAgent);
-		assert.equal(packageAgent.source, "package");
-		assert.equal(packageAgent.filePath, path.join(packageRoot, "agents", "planner.md"));
-		const reviewer = agents.find((candidate) => candidate.name === "reviewer");
-		assert.equal(reviewer?.model, "openai/gpt-5.4");
-		assert.equal(reviewer?.override?.path, path.join(dir, ".pi", "settings.json"));
+		writeJson(path.join(dir, ".pi", "settings.json"), { subagents: { projectRootResolution: "git-root" } });
+		writeJson(path.join(packageRoot, "package.json"), { name: "outer-workflow", "pi-subagents": { agents: ["./agents"] } });
+		writeAgent(path.join(packageRoot, "agents", "planner.md"), "---\nname: planner\npackage: outer-workflow\ndescription: Outer planner\n---\nPlan work.\n");
+		const agent = discoverAgents(nested, "both").agents.find((candidate) => candidate.name === "outer-workflow.planner");
+		assert.equal(agent?.source, "package");
+		assert.equal(agent?.filePath, path.join(packageRoot, "agents", "planner.md"));
 	}));
 
-	it("keeps git-root discovery stable when a nested linked worktree creates incidental .pi state", () => withTempHome(() => {
+	it("keeps git-root discovery stable when a linked worktree gains incidental project state", () => withTempHome(() => {
 		const { repo, worktree } = createNestedLinkedWorktree();
 		const { packageAgentName, packageAgentPath, settingsPath } = writeLinkedWorktreePackage(repo);
-
-		const before = discoverAgents(worktree, "both").agents;
-		const beforePackageAgent = before.find((candidate) => candidate.name === packageAgentName);
-		assert.ok(beforePackageAgent);
-		assert.equal(beforePackageAgent.source, "package");
-		assert.equal(beforePackageAgent.filePath, packageAgentPath);
-		assert.equal(before.find((candidate) => candidate.name === "reviewer")?.override?.path, settingsPath);
-
+		const before = discoverAgents(worktree, "both").agents.find((candidate) => candidate.name === packageAgentName);
+		assert.equal(before?.filePath, packageAgentPath);
 		fs.mkdirSync(path.join(worktree, ".pi", "todos"), { recursive: true });
-
-		const after = discoverAgents(worktree, "both").agents;
 		const all = discoverAgentsAll(worktree);
-		const afterPackageAgent = after.find((candidate) => candidate.name === packageAgentName);
-		const allPackageAgent = all.package.find((candidate) => candidate.name === packageAgentName);
-		assert.equal(afterPackageAgent?.source, beforePackageAgent.source);
-		assert.equal(afterPackageAgent?.filePath, beforePackageAgent.filePath);
-		assert.equal(allPackageAgent?.filePath, afterPackageAgent.filePath);
+		assert.equal(all.package.find((candidate) => candidate.name === packageAgentName)?.filePath, packageAgentPath);
 		assert.equal(all.projectSettingsPath, settingsPath);
-		assert.equal(after.find((candidate) => candidate.name === "reviewer")?.override?.path, all.projectSettingsPath);
-	}));
-
-	it("lets a linked worktree opt back into nearest-root discovery", () => withTempHome(() => {
-		const { repo, worktree } = createNestedLinkedWorktree();
-		const { packageAgentName } = writeLinkedWorktreePackage(repo);
-		const worktreeSettingsPath = path.join(worktree, ".pi", "settings.json");
-		writeJson(worktreeSettingsPath, {
-			subagents: {
-				projectRootResolution: "nearest",
-				agentOverrides: {
-					reviewer: { model: "issue950/worktree-model" },
-				},
-			},
-		});
-
-		const discovered = discoverAgents(worktree, "both").agents;
-		const all = discoverAgentsAll(worktree);
-		assert.equal(discovered.find((candidate) => candidate.name === packageAgentName), undefined);
-		assert.equal(all.package.find((candidate) => candidate.name === packageAgentName), undefined);
-		assert.equal(discovered.find((candidate) => candidate.name === "reviewer")?.model, "issue950/worktree-model");
-		assert.equal(all.projectSettingsPath, worktreeSettingsPath);
 	}));
 
 	it("does not register legacy skill files from broad package agent roots", () => withTempHome(() => {
@@ -1808,109 +1684,6 @@ Do work
 		assert.equal(worker?.systemPromptMode, "replace");
 		assert.equal(worker?.inheritProjectContext, false);
 		assert.equal(worker?.inheritSkills, false);
-	});
-
-	it("builtin agents inherit project context by default", () => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-builtin-default-prompt-settings-"));
-		const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-builtin-default-home-"));
-		tempDirs.push(dir);
-		tempDirs.push(homeDir);
-		const previousHome = process.env.HOME;
-		const previousUserProfile = process.env.USERPROFILE;
-
-		try {
-			process.env.HOME = homeDir;
-			process.env.USERPROFILE = homeDir;
-
-			const result = discoverAgents(dir, "both");
-			const scout = result.agents.find((agent) => agent.name === "scout");
-			const reviewer = result.agents.find((agent) => agent.name === "reviewer");
-			const delegate = result.agents.find((agent) => agent.name === "delegate");
-			assert.equal(scout?.inheritProjectContext, true);
-			assert.equal(reviewer?.inheritProjectContext, true);
-			assert.equal(delegate?.inheritProjectContext, true);
-		} finally {
-			if (previousHome === undefined) delete process.env.HOME;
-			else process.env.HOME = previousHome;
-			if (previousUserProfile === undefined) delete process.env.USERPROFILE;
-			else process.env.USERPROFILE = previousUserProfile;
-		}
-	});
-
-	it("bundled agents all have explicit tool allowlists", () => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-builtin-tools-"));
-		const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-builtin-tools-home-"));
-		tempDirs.push(dir);
-		tempDirs.push(homeDir);
-		const previousHome = process.env.HOME;
-		const previousUserProfile = process.env.USERPROFILE;
-
-		try {
-			process.env.HOME = homeDir;
-			process.env.USERPROFILE = homeDir;
-			const builtins = discoverAgentsAll(dir).builtin;
-			assert.ok(builtins.length > 0);
-			for (const agent of builtins) {
-				if (agent.runner?.type === "external-cli" || agent.runner?.type === "external-job") continue;
-				assert.ok(agent.tools && agent.tools.length > 0, `${agent.name} should have explicit tools frontmatter`);
-			}
-		} finally {
-			if (previousHome === undefined) delete process.env.HOME;
-			else process.env.HOME = previousHome;
-			if (previousUserProfile === undefined) delete process.env.USERPROFILE;
-			else process.env.USERPROFILE = previousUserProfile;
-		}
-	});
-
-	it("bundled standard agents expose the child-facing supervisor tool with bounded allowlists", () => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-builtin-supervisor-tool-"));
-		const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-builtin-supervisor-tool-home-"));
-		tempDirs.push(dir);
-		tempDirs.push(homeDir);
-		const previousHome = process.env.HOME;
-		const previousUserProfile = process.env.USERPROFILE;
-
-		try {
-			process.env.HOME = homeDir;
-			process.env.USERPROFILE = homeDir;
-			const agents = discoverAgentsAll(dir).builtin;
-			const expectedTools = {
-				worker: ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_supervisor"],
-				delegate: ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_supervisor"],
-				reviewer: ["read", "grep", "find", "ls", "contact_supervisor"],
-				scout: ["read", "grep", "find", "ls", "bash", "write", "contact_supervisor"],
-			};
-			for (const [name, tools] of Object.entries(expectedTools)) {
-				const agent = agents.find((candidate) => candidate.name === name);
-				assert.ok(agent, `${name} builtin should be discovered`);
-				assert.deepEqual(agent?.tools, tools);
-			}
-		} finally {
-			if (previousHome === undefined) delete process.env.HOME;
-			else process.env.HOME = previousHome;
-			if (previousUserProfile === undefined) delete process.env.USERPROFILE;
-			else process.env.USERPROFILE = previousUserProfile;
-		}
-	});
-
-	it("defaults delegate to append mode with inherited project context", () => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagents-agent-delegate-default-prompt-settings-"));
-		tempDirs.push(dir);
-		const agentsDir = path.join(dir, ".pi", "agents");
-		fs.mkdirSync(agentsDir, { recursive: true });
-		fs.writeFileSync(path.join(agentsDir, "delegate.md"), `---
-name: delegate
-description: Delegate
----
-
-Do work
-`, "utf-8");
-
-		const result = discoverAgents(dir, "project");
-		const delegate = result.agents.find((agent) => agent.name === "delegate");
-		assert.equal(delegate?.systemPromptMode, "append");
-		assert.equal(delegate?.inheritProjectContext, true);
-		assert.equal(delegate?.inheritSkills, false);
 	});
 });
 

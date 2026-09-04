@@ -89,7 +89,7 @@ describe("agent refinements", () => {
 	it("does not launch or write when no bounded evidence exists", async () => {
 		writeProjectAgent();
 		let launched = false;
-		const result = await handleRefinementAction("refine", { agent: "worker" }, {
+		const result = await handleRefinementAction("refine", { agent: "worker", proposalAgent: "configured-evaluator" }, {
 			cwd: tempDir,
 			state: state(),
 			signal: new AbortController().signal,
@@ -159,9 +159,9 @@ describe("agent refinements", () => {
 			},
 		};
 
-		const first = await handleRefinementAction("refine", { agent: "worker" }, ctx);
+		const first = await handleRefinementAction("refine", { agent: "worker", proposalAgent: "configured-evaluator" }, ctx);
 		assert.equal(first.isError, undefined);
-		const second = await handleRefinementAction("refine", { agent: "worker" }, ctx);
+		const second = await handleRefinementAction("refine", { agent: "worker", proposalAgent: "configured-evaluator" }, ctx);
 		assert.equal(second.isError, undefined);
 
 		let prompt = appendAgentRefinementOverlay("Base", { cwd: tempDir, agentName: "worker" });

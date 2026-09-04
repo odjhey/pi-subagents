@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+- Hard cut over to a role-neutral distribution: the package now ships no agent profiles, prompt recipes, or orchestration skills. Operators must install or define every agent explicitly.
+- Agent names no longer imply context inheritance, prompt mode, mutation intent, acceptance policy, review selection, proactive recommendations, or refinement selection.
+- Prompt workflows, refinement, and the `review` named resource now require an explicit configured agent where they launch a child.
+- Replace inert generated profile files with `/subagents-recommend-profile-models`, which reports tier candidates without inventing custom-agent mappings.
+
+### Removed
+- Remove the legacy `npx pi-subagents` clone installer, including its `--remove` and `--help` options. Use `pi install npm:pi-subagents` and `pi remove npm:pi-subagents` to manage the package instead.
+
 ## [0.65.0] - 2026-09-04
 
 ### Highlights

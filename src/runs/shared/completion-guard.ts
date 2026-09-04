@@ -75,9 +75,8 @@ function hasBuiltinMutationTool(tools: string[] | undefined): boolean {
 	return tools === undefined || tools.some((tool) => !READ_ONLY_BUILTIN_TOOLS.has(tool));
 }
 
-function isWriterRole(agent: string, acceptanceRole: AcceptanceRole | undefined): boolean {
-	return acceptanceRole === "writer"
-		|| (acceptanceRole === undefined && /\bworker\b/i.test(agent));
+function isWriterRole(acceptanceRole: AcceptanceRole | undefined): boolean {
+	return acceptanceRole === "writer";
 }
 
 const WRITER_DELIVERY_PATTERN = /\b(?:address|resolve|work)\s+(?:backlog\s+)?(?:item|issue)\b|\b(?:land|ship)\s+(?:the\s+)?(?:change|changes|fix|feature|implementation)\b/i;
@@ -99,7 +98,7 @@ export function validateImplementationToolContract(input: {
 	if (hasMutationToolCapability(input.tools, input.mcpDirectTools) || configuredExtensionCapability) return undefined;
 	const intent = classifyTaskMutationIntent(input.agent, input.task);
 	if (intent.kind === "read-only") return undefined;
-	const writerTaskMayMutate = isWriterRole(input.agent, input.acceptanceRole)
+	const writerTaskMayMutate = isWriterRole(input.acceptanceRole)
 		&& (taskMayMutate(input.task) || WRITER_DELIVERY_PATTERN.test(input.task));
 	if (intent.kind !== "implementation" && !writerTaskMayMutate && !declaredMutationToolsWereRemoved) return undefined;
 	return `Agent '${input.agent}' was given an implementation task, but its tool allowlist has no mutation-capable tools. Add bash, edit, write, or another mutation-capable tool to the agent, or use a read-only task/agent.`;

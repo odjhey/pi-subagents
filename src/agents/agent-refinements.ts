@@ -14,7 +14,6 @@ const MAX_EVIDENCE_ITEMS = 8;
 const MAX_AGE_DAYS = 14;
 const MAX_ITEM_BYTES = 2_048;
 const MAX_PACKET_BYTES = 16_384;
-const PROPOSAL_AGENT = "reviewer";
 
 type RefinementAction = "refine" | "refine.show" | "refine.rollback";
 type RefinementEvidenceSource = "live-state" | "artifact-metadata" | "artifact-output";
@@ -543,9 +542,14 @@ function resolveOneAgent(cwd: string, agentName: string): { ok: true; agent: Age
 	return { ok: true, agent: resolved.agent };
 }
 
-export async function handleRefinementAction(action: RefinementAction, params: { agent?: string }, ctx: RefinementActionContext): Promise<AgentToolResult<Details>> {
+export async function handleRefinementAction(action: RefinementAction, params: { agent?: string; proposalAgent?: string }, ctx: RefinementActionContext): Promise<AgentToolResult<Details>> {
 	const requestedAgent = params.agent?.trim();
-	if (!requestedAgent) return result(`${action} requires agent. Use /subagents-refine <agent> or subagent({ action: "${action}", agent: "<agent>" }).`, true);
+	if (!requestedAgent) {
+		const slashUsage = action === "refine"
+			? "/subagents-refine <agent> <proposal-agent>"
+			: `subagent({ action: "${action}", agent: "<agent>" })`;
+		return result(`${action} requires agent. Use ${slashUsage}.`, true);
+	}
 	let resolved: { ok: true; agent: AgentConfig } | { ok: false; error: string };
 	try { resolved = resolveOneAgent(ctx.cwd, requestedAgent); } catch (error) { return result(error instanceof Error ? error.message : String(error), true); }
 	if (!resolved.ok) return result(resolved.error, true);
@@ -589,6 +593,8 @@ export async function handleRefinementAction(action: RefinementAction, params: {
 		return result(`Rolled back refinement overlay for '${agent.name}' to revision ${nextRevision}.\nPath: ${existing.path}`);
 	}
 
+	const proposalAgent = params.proposalAgent?.trim();
+	if (!proposalAgent) return result(`refine requires proposalAgent. Configure the custom agent that should evaluate refinement evidence.`, true);
 	const evidence = collectBoundedRefinementEvidence(ctx.cwd, agent.name, ctx.state);
 	if (evidence.length === 0) return result(`No bounded recent evidence was found for '${agent.name}'. No proposal child was launched and no overlay was written.`);
 	const current = existing.parsed?.current ?? "";
@@ -607,7 +613,7 @@ export async function handleRefinementAction(action: RefinementAction, params: {
 		before: current,
 		after,
 		evidenceIds: [...new Set(validation.proposal.edits.flatMap((edit) => edit.evidenceIds))],
-		proposalAgent: PROPOSAL_AGENT,
+		proposalAgent,
 	};
 	const next: ParsedRefinementFile = {
 		metadata: metadataFor(agent, nextRevision, now),

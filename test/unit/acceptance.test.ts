@@ -63,29 +63,30 @@ function tempGitRepo(): string {
 }
 
 describe("acceptance gates", () => {
-	it("infers evidence levels and review requirements independently", () => {
-		assert.equal(resolveEffectiveAcceptance({ agentName: "reviewer", task: "Review-only. Do not edit.", mode: "single" }).level, "none");
-		assert.equal(resolveEffectiveAcceptance({ agentName: "worker", task: "Implement the fix", mode: "single" }).level, "checked");
+	it("infers evidence from explicit role and task intent without inventing a review agent", () => {
+		assert.equal(resolveEffectiveAcceptance({ agentName: "any-name", task: "Review-only. Do not edit.", mode: "single" }).level, "none");
+		assert.equal(resolveEffectiveAcceptance({ agentName: "any-name", task: "Implement the fix", mode: "single" }).level, "checked");
 		for (const resolved of [
 			resolveEffectiveAcceptance({ agentName: "worker", task: "Implement the fix", mode: "single", async: true }),
-			resolveEffectiveAcceptance({ agentName: "worker", task: "Fix each item", mode: "chain", dynamic: true }),
+			resolveEffectiveAcceptance({ agentName: "arbitrary", task: "Fix each item", mode: "chain", dynamic: true }),
 		]) {
 			assert.equal(resolved.level, "checked");
-			assert.equal(resolved.review && resolved.review !== false ? resolved.review.required : undefined, true);
+			assert.equal(resolved.review, undefined);
 		}
 	});
 
-	it("omits inferred acceptance for async oracle review tasks despite implementation vocabulary", () => {
-		const resolved = resolveEffectiveAcceptance({
-			agentName: "oracle",
-			task: "Review prep findings and determine what to implement with playbooks instead of before.",
-			mode: "single",
-			async: true,
-		});
-
-		assert.equal(resolved.level, "none");
-		assert.deepEqual(resolved.inferredReason, ["read-only/reviewer-style agent"]);
-		assert.deepEqual(resolved.criteria, []);
+	it("uses explicit read-only metadata rather than a conventional name", () => {
+		for (const agentName of ["oracle", "arbitrary-name"]) {
+			const resolved = resolveEffectiveAcceptance({
+				agentName,
+				acceptanceRole: "read-only",
+				task: "Review prep findings without editing files.",
+				mode: "single",
+				async: true,
+			});
+			assert.equal(resolved.level, "none");
+			assert.deepEqual(resolved.criteria, []);
+		}
 	});
 
 	it("uses explicit agent roles for ambiguous tasks while preserving task-intent precedence", () => {
@@ -163,6 +164,7 @@ describe("acceptance gates", () => {
 		}).level, "none");
 		const dynamicReviewer = resolveEffectiveAcceptance({
 			agentName: "reviewer",
+			acceptanceRole: "read-only",
 			task: "Review each target",
 			mode: "chain",
 			dynamic: true,
@@ -171,11 +173,11 @@ describe("acceptance gates", () => {
 		assert.equal(formatAcceptancePrompt(dynamicReviewer), "");
 	});
 
-	it("preserves risky keyword review inference when acceptance role metadata is omitted", () => {
+	it("raises risky keyword evidence without selecting another agent", () => {
 		for (const task of ["Inspect the security posture", "Read-only security audit"]) {
 			const resolved = resolveEffectiveAcceptance({ agentName: "worker", task });
 			assert.equal(resolved.level, "checked", task);
-			assert.equal(resolved.review && resolved.review !== false ? resolved.review.required : undefined, true, task);
+			assert.equal(resolved.review, undefined, task);
 		}
 	});
 
@@ -193,7 +195,7 @@ describe("acceptance gates", () => {
 	it("agent contract v1 disables inferred acceptance without changing current defaults", () => {
 		const current = resolveEffectiveAcceptance({ agentName: "worker", acceptanceRole: "writer", task: "Implement the fix", mode: "single", async: true });
 		assert.equal(current.level, "checked");
-		assert.equal(current.review && current.review !== false ? current.review.required : undefined, true);
+		assert.equal(current.review, undefined);
 		assert.deepEqual(current.inferredReason, ["async write-capable or risky run"]);
 
 		for (const explicit of [undefined, "auto" as const, false] as const) {
@@ -560,7 +562,7 @@ describe("acceptance gates", () => {
 		try {
 			const acceptance = resolveEffectiveAcceptance({
 				agentName: "worker",
-				task: "Return a concise result",
+				task: "Implement the requested change",
 				explicit: { level: "attested", evidence: ["manual-notes"] },
 			});
 			const ledger = await evaluateAcceptance({
@@ -901,7 +903,7 @@ describe("acceptance gates", () => {
 		}
 	});
 
-	it("keeps inferred review required when callers explicitly select checked or auto evidence", async () => {
+	it("does not infer an agent review when callers select checked or auto evidence", async () => {
 		const cwd = tempRepo();
 		try {
 			for (const explicit of [{ level: "checked" }, "auto", { level: "auto" }] as const) {
@@ -913,14 +915,14 @@ describe("acceptance gates", () => {
 				});
 
 				assert.equal(acceptance.level, "checked");
-				assert.equal(acceptance.review && acceptance.review !== false ? acceptance.review.required : undefined, true);
+				assert.equal(acceptance.review, undefined);
 				const ledger = await evaluateAcceptance({ acceptance, output: report({ criteriaSatisfied: [
 					{ id: "criterion-1", status: "satisfied", evidence: "implemented" },
 					{ id: "criterion-2", status: "satisfied", evidence: "evidence returned" },
 				] }), cwd });
-				assert.equal(ledger.status, "review-required");
+				assert.equal(ledger.status, "checked");
 				assert.equal(ledger.evidenceStatus, "checked");
-				assert.equal(ledger.reviewResult?.status, "review-required");
+				assert.equal(ledger.reviewResult, undefined);
 			}
 		} finally {
 			fs.rmSync(cwd, { recursive: true, force: true });
@@ -1276,7 +1278,7 @@ describe("acceptance gates", () => {
 		}
 	});
 
-	it("bare write verbs keep their review requirement for async tasks on any agent", () => {
+	it("bare write verbs raise evidence without selecting an agent", () => {
 		const tasks = [
 			"Write the code",
 			"Commit the changes",
@@ -1287,7 +1289,7 @@ describe("acceptance gates", () => {
 		for (const task of tasks) {
 			const resolved = resolveEffectiveAcceptance({ agentName: "delegate", task, async: true });
 			assert.equal(resolved.level, "checked", task);
-			assert.equal(resolved.review && resolved.review !== false ? resolved.review.required : undefined, true, task);
+			assert.equal(resolved.review, undefined, task);
 		}
 	});
 

@@ -1315,12 +1315,13 @@ describe("fork context execution wiring", { skip: !available ? "subagent executo
 
 
 
-	it("uses request cwd for project builtin overrides during management", async () => {
+	it("uses request cwd for project custom-agent overrides during management", async () => {
 		const tempHome = createTempDir("pi-subagent-home-");
 		process.env.HOME = tempHome;
 		process.env.USERPROFILE = tempHome;
 		const worktreeDir = path.join(tempDir, "worktree");
 		fs.mkdirSync(worktreeDir, { recursive: true });
+		writeAgent(worktreeDir, "reviewer", "openai/gpt-5-base");
 		writeProjectOverride(tempDir, "reviewer", "openai/gpt-5-main");
 		writeProjectOverride(worktreeDir, "reviewer", "openai/gpt-5-worktree");
 		const executor = makeExecutor();

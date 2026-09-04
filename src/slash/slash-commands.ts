@@ -10,13 +10,11 @@ import {
 	DEFAULT_PROVIDER_MODELS_MAX_AGE_DAYS,
 	applySubagentProfile,
 	checkSubagentProfile,
-	generateProfilesForProvider,
+	recommendProfileModelsForProvider,
 	listSubagentProfiles,
-	readSubagentProfile,
 	refreshProviderModelCatalog,
 } from "../profiles/profiles.ts";
 import type { SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
-import { findModelInfo, toModelInfo } from "../shared/model-info.ts";
 import { formatTokens, shortenPath } from "../shared/formatters.ts";
 import { listAsyncRuns, formatAsyncRunProgressLabel, type AsyncRunSummary } from "../runs/background/async-status.ts";
 import { encodeInspectReply, handleInspectRpcArgs, INSPECT_WIDGET_KEY } from "../runs/background/inspect-rpc.ts";
@@ -134,6 +132,17 @@ const makeAgentCompletions = (pi: ExtensionAPI, state: SubagentState) => (prefix
 	return discoverSlashAgents(pi, state.baseCwd, "both").agents
 		.filter((agent) => agent.name.startsWith(prefix))
 		.map((agent) => ({ value: agent.name, label: agent.name }));
+};
+
+const makeTwoAgentCompletions = (pi: ExtensionAPI, state: SubagentState) => (prefix: string) => {
+	if (!state.baseCwd) return null;
+	const separator = prefix.lastIndexOf(" ");
+	const completedPrefix = separator < 0 ? "" : prefix.slice(0, separator + 1);
+	const activePrefix = prefix.slice(separator + 1);
+	if (completedPrefix.trim().split(/\s+/).filter(Boolean).length > 1) return null;
+	return discoverSlashAgents(pi, state.baseCwd, "both").agents
+		.filter((agent) => agent.name.startsWith(activePrefix))
+		.map((agent) => ({ value: `${completedPrefix}${agent.name}`, label: agent.name }));
 };
 
 const makeProviderCompletions = (state: SubagentState) => (prefix: string) => {
@@ -565,11 +574,6 @@ function parseSingleRequiredArg(args: string, usage: string): { ok: true; value:
 	return { ok: true, value: parts[0]! };
 }
 
-function getProfileWorkerModel(profile: { subagents?: { agentOverrides?: Record<string, { model?: string }> } }): string | undefined {
-	const model = profile.subagents?.agentOverrides?.worker?.model;
-	return typeof model === "string" && model.trim() ? model.trim() : undefined;
-}
-
 function isStaleExtensionContextError(error: unknown): boolean {
 	return error instanceof Error
 		&& (error.message.includes("This extension ctx is stale")
@@ -958,15 +962,15 @@ export function registerSlashCommands(
 	});
 
 	pi.registerCommand("subagents-refine", {
-		description: "Generate a bounded project-local refinement overlay for one subagent",
-		getArgumentCompletions: makeAgentCompletions(pi, state),
+		description: "Generate a bounded project-local refinement overlay using an explicit proposal agent",
+		getArgumentCompletions: makeTwoAgentCompletions(pi, state),
 		handler: async (args, ctx) => {
 			const parts = args.trim().split(/\s+/).filter(Boolean);
-			if (parts.length !== 1) {
-				ctx.ui.notify("Usage: /subagents-refine <agent>", "error");
+			if (parts.length !== 2) {
+				ctx.ui.notify("Usage: /subagents-refine <agent> <proposal-agent>", "error");
 				return;
 			}
-			await runCommand(ctx, { action: "refine", agent: parts[0] });
+			await runCommand(ctx, { action: "refine", agent: parts[0], proposalAgent: parts[1] });
 		},
 	});
 
@@ -1176,34 +1180,12 @@ export function registerSlashCommands(
 			}
 			try {
 				await withSlashStatus(ctx, `Loading profile ${parsed.value}…`, async () => {
-					const { profile } = readSubagentProfile(parsed.value);
-					const workerModel = getProfileWorkerModel(profile);
 					const result = applySubagentProfile(parsed.value);
 					const lines = [
 						`Loaded subagent profile: ${parsed.value}`,
 						`Profile: ${result.filePath}`,
 						`Updated: ${result.settingsPath}`,
 					];
-
-					if (workerModel && typeof pi.setModel === "function" && typeof ctx.modelRegistry?.find === "function" && typeof ctx.modelRegistry?.getAvailable === "function") {
-						const shouldSwitch = await ctx.ui.confirm(
-							"",
-							`Profile loaded. Also switch this session to the profile worker model?\n\n${workerModel}`,
-						);
-						if (shouldSwitch) {
-							const modelInfo = findModelInfo(workerModel, ctx.modelRegistry.getAvailable().map(toModelInfo));
-							const model = modelInfo ? ctx.modelRegistry.find(modelInfo.provider, modelInfo.id) : undefined;
-							if (!modelInfo || !model) {
-								lines.push(`Could not switch current session model: '${workerModel}' is not available in the current model registry.`);
-							} else {
-								const success = await pi.setModel(model);
-								if (success) lines.push(`Current session model switched to: ${modelInfo.fullId}`);
-								else lines.push(`Could not switch current session model to '${workerModel}': no API key or provider access is available.`);
-							}
-						}
-					} else if (workerModel) {
-						lines.push(`Profile worker model: ${workerModel}`);
-					}
 
 					sendSlashText(pi, lines.join("\n"));
 				});
@@ -1247,33 +1229,34 @@ export function registerSlashCommands(
 		},
 	});
 
-	pi.registerCommand("subagents-generate-profiles", {
-		description: "Generate <provider>.quota and <provider>.quality subagent profiles",
+	pi.registerCommand("subagents-recommend-profile-models", {
+		description: "Recommend quota and quality model tiers without inventing agent mappings",
 		getArgumentCompletions: makeProviderCompletions(state),
 		handler: async (args, ctx) => {
-			const parsed = parseSingleRequiredArg(args, "Usage: /subagents-generate-profiles <provider>");
+			const parsed = parseSingleRequiredArg(args, "Usage: /subagents-recommend-profile-models <provider>");
 			if (parsed.ok === false) {
 				ctx.ui.notify(parsed.message, "error");
 				return;
 			}
 			try {
-				await withSlashStatus(ctx, `Generating profiles for ${parsed.value}…`, async () => {
-					const result = await generateProfilesForProvider(pi, ctx, parsed.value, { maxAgeDays: DEFAULT_PROVIDER_MODELS_MAX_AGE_DAYS });
+				await withSlashStatus(ctx, `Recommending profile models for ${parsed.value}…`, async () => {
+					const result = await recommendProfileModelsForProvider(pi, ctx, parsed.value, { maxAgeDays: DEFAULT_PROVIDER_MODELS_MAX_AGE_DAYS });
 					const lines = [
-						"Generated subagent profiles",
+						"Subagent profile model recommendations",
 						`Provider: ${parsed.value}`,
 						`Catalog: ${result.catalogPath}`,
-						`Quota: ${result.quotaPath}`,
+						"No profile was written. Map configured custom agents to these models explicitly:",
+						"Quota:",
 						`  cheap=${result.quotaModels.cheap}`,
 						`  medium=${result.quotaModels.medium}`,
 						`  strong=${result.quotaModels.strong}`,
-						`Quality: ${result.qualityPath}`,
+						"Quality:",
 						`  cheap=${result.qualityModels.cheap}`,
 						`  medium=${result.qualityModels.medium}`,
 						`  strong=${result.qualityModels.strong}`,
 					];
 					if (result.selectedHeuristicFallbackCount > 0) {
-						lines.push(`Warning: generated profiles depend on heuristic-only classification for ${result.selectedHeuristicFallbackCount} selected model${result.selectedHeuristicFallbackCount === 1 ? "" : "s"}.`);
+						lines.push(`Warning: recommendations depend on heuristic-only classification for ${result.selectedHeuristicFallbackCount} selected model${result.selectedHeuristicFallbackCount === 1 ? "" : "s"}.`);
 					} else if (result.heuristicFallbackCount > 0) {
 						lines.push(`Warning: provider catalog still contains ${result.heuristicFallbackCount} heuristic-classified model${result.heuristicFallbackCount === 1 ? "" : "s"}.`);
 					}

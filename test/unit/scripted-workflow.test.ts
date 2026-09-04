@@ -982,7 +982,6 @@ describe("scripted workflow runtime", () => {
 		};
 		for (const [agent, task] of [
 			["worker", "Implement a follow-up change"],
-			["worker", "Read-only review. Do not edit files. Return findings only."],
 			["reviewer", "Review the saved report and delete files"],
 			["custom-reviewer", "Review the saved report and add tests"],
 			["oracle", "Review the saved report and create files"],

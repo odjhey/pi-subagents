@@ -4,34 +4,26 @@ import { readSubagentGuide, SUBAGENT_GUIDE_TOPICS } from "../../src/extension/su
 import { SUBAGENT_ACTIONS } from "../../src/shared/types.ts";
 
 describe("subagent guide", () => {
-	it("reads the packaged overview by default", () => {
+	it("reads the role-neutral packaged overview", () => {
 		const guide = readSubagentGuide();
-
 		assert.match(guide, /# pi-subagents/);
+		assert.match(guide, /ships \*\*zero agent profiles/i);
+		assert.match(guide, /Agent names are identifiers/i);
 	});
 
 	it("lists valid topics for an unknown topic without changing files", () => {
 		const guide = readSubagentGuide("unknown");
-
 		assert.match(guide, /Unknown subagents guide topic 'unknown'/);
 		assert.match(guide, /No files were changed\./);
 		assert.match(guide, new RegExp(SUBAGENT_GUIDE_TOPICS.join(", ")));
 	});
 
-	it("registers the guide action for action recovery", () => {
+	it("registers guide action and documents explicit authoring and workflows", () => {
 		assert.ok(SUBAGENT_ACTIONS.includes("guide"));
-	});
-
-	it("documents external CLI runner limits in packaged guide topics", () => {
-		assert.match(readSubagentGuide("tool-reference"), /External CLI agent profiles[\s\S]*native Pi child options[\s\S]*model override[\s\S]*native Pi tools/);
-		assert.match(readSubagentGuide("agents"), /External CLI agents use their own runner contract[\s\S]*native Pi child options/);
-	});
-
-	it("keeps advanced workflow details in the packaged guide", () => {
-		const guide = readSubagentGuide("workflows");
-
-		assert.match(guide, /### Parallel sequential lanes[\s\S]*runs\.lanes/);
-		assert.match(guide, /### Host command steps[\s\S]*runs\.host/);
-		assert.match(guide, /### Advanced rolling child runs[\s\S]*Promise\.race[\s\S]*Promise\.all/);
+		assert.match(readSubagentGuide("agents"), /pi-subagents ships no agent definitions/i);
+		assert.match(readSubagentGuide("agents"), /Runtime registration/);
+		assert.match(readSubagentGuide("workflows"), /Sequential[\s\S]*Parallel/);
+		assert.match(readSubagentGuide("workflows"), /never substitutes an agent identity/i);
+		assert.match(readSubagentGuide("tool-reference"), /does not inspect the agent name/i);
 	});
 });

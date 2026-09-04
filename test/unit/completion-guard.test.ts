@@ -385,8 +385,8 @@ test("implementation tool contract rejects read-only worker launches", () => {
 	}), undefined);
 });
 
-test("oracle review tasks with bash available do not require mutation", () => {
-	const task = "Review prep findings and determine what to implement with playbooks instead of before.";
+test("explicit read-only task wording does not require mutation for a conventional name", () => {
+	const task = "Review prep findings and report recommendations. Do not edit files.";
 	const result = evaluateCompletionMutationGuard({
 		agent: "oracle",
 		task,
@@ -402,15 +402,15 @@ test("oracle review tasks with bash available do not require mutation", () => {
 	});
 });
 
-test("review-only, research, and framework output instructions do not expect mutation", () => {
+test("task wording, not names, determines review, research, and output intent", () => {
 	assert.equal(expectsImplementationMutation("worker", "Review only: return findings, do not edit"), false);
 	assert.equal(expectsImplementationMutation("worker", "Do not edit files. Tell me how to fix the bug."), false);
 	assert.equal(expectsImplementationMutation("worker", "Review the diff and suggest fixes only. Do not edit files."), false);
 	assert.equal(expectsImplementationMutation("worker", "Implement this. Do not edit files outside this repo. Do not edit files."), false);
 	assert.equal(expectsImplementationMutation("worker", "Investigate why this failed"), false);
 	assert.equal(expectsImplementationMutation("researcher", "Research the API behavior"), false);
-	assert.equal(expectsImplementationMutation("researcher", "Research this and patch the bug"), false);
-	assert.equal(expectsImplementationMutation("reviewer", "Review this and fix any real issues"), false);
+	assert.equal(expectsImplementationMutation("researcher", "Research this and patch the bug"), true);
+	assert.equal(expectsImplementationMutation("reviewer", "Review this and fix any real issues"), true);
 	assert.equal(expectsImplementationMutation("reviewer", "Review this and fix any real issues; regardless of findings, apply changes directly"), true);
 	assert.equal(expectsImplementationMutation("worker", "[Write to: /tmp/result.md]\n\nSummarize findings"), false);
 	assert.equal(expectsImplementationMutation("worker", "Write report"), false);

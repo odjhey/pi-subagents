@@ -4,15 +4,13 @@ import type { ProactiveSkillSubagentsConfig } from "../shared/types.ts";
 const SUBAGENT_ORCHESTRATION_SKILL = "pi-subagents";
 const DEFAULT_MIN_REFERENCES = 2;
 const DEFAULT_MAX_RECOMMENDATIONS = 3;
-const DEFAULT_PREFERRED_AGENT = "reviewer";
-const FALLBACK_AGENT_ORDER = ["reviewer", "delegate"];
 const MAX_RECOMMENDATION_CAP = 5;
 
 export interface ResolvedProactiveSkillSubagentsConfig {
 	enabled: boolean;
 	minReferences: number;
 	maxRecommendations: number;
-	preferredAgent: string;
+	preferredAgent?: string;
 }
 
 export interface ProactiveSkillSubagentRecommendation {
@@ -43,7 +41,6 @@ export function resolveProactiveSkillSubagentsConfig(
 			enabled: false,
 			minReferences: DEFAULT_MIN_REFERENCES,
 			maxRecommendations: DEFAULT_MAX_RECOMMENDATIONS,
-			preferredAgent: DEFAULT_PREFERRED_AGENT,
 		};
 	}
 
@@ -52,9 +49,9 @@ export function resolveProactiveSkillSubagentsConfig(
 		enabled: config?.enabled ?? true,
 		minReferences: positiveInteger(config?.minReferences) ?? DEFAULT_MIN_REFERENCES,
 		maxRecommendations: Math.min(maxRecommendations, MAX_RECOMMENDATION_CAP),
-		preferredAgent: typeof config?.preferredAgent === "string" && config.preferredAgent.trim()
-			? config.preferredAgent.trim()
-			: DEFAULT_PREFERRED_AGENT,
+		...(typeof config?.preferredAgent === "string" && config.preferredAgent.trim()
+			? { preferredAgent: config.preferredAgent.trim() }
+			: {}),
 	};
 }
 
@@ -89,13 +86,9 @@ function collectStepSkills(step: ChainStepConfig, out: Set<string>): void {
 	}
 }
 
-function chooseRecommendationAgent(agents: AgentConfig[], preferredAgent: string): string | undefined {
-	const enabled = agents.filter((agent) => !agent.disabled);
-	if (enabled.some((agent) => agent.name === preferredAgent)) return preferredAgent;
-	for (const name of FALLBACK_AGENT_ORDER) {
-		if (enabled.some((agent) => agent.name === name)) return name;
-	}
-	return enabled[0]?.name;
+function chooseRecommendationAgent(agents: AgentConfig[], preferredAgent: string | undefined): string | undefined {
+	if (!preferredAgent) return undefined;
+	return agents.some((agent) => !agent.disabled && agent.name === preferredAgent) ? preferredAgent : undefined;
 }
 
 function addSource(counts: Map<string, Set<string>>, skill: string, source: string): void {
