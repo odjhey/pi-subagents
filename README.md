@@ -2,11 +2,15 @@
 
 `pi-subagents` is a policy-neutral Pi extension that discovers configured child agents, lists them, or launches exactly one named Pi child in the foreground. It ships no agents, prompts, skills, workflows, or external runners.
 
-## Install
+This is the `odjhey/pi-subagents` spawn-kernel fork. The npm package named `pi-subagents` is the upstream project and does not install this fork.
+
+## Install this fork
 
 ```bash
-pi install npm:pi-subagents
+pi install git:github.com/odjhey/pi-subagents@v1.0.0
 ```
+
+For development from an untagged branch, use `pi -e /absolute/path/to/pi-subagents/index.ts`.
 
 Version 1.0 targets the Pi 0.85 API line. Pi owns provider definitions and authentication. Explicit child extensions are loaded through Pi and may register their own providers; this package supplies none and never substitutes or reroutes an unavailable explicitly requested model.
 
