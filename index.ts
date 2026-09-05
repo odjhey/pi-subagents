@@ -1,10 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type {} from "./src/types/pi-runtime-compat.d.ts";
+import { isSubagentChildContext } from "./src/runs/shared/child-session.ts";
 
-const registerParentExtension = process.env.PI_SUBAGENT_CHILD === "1"
-	? undefined
-	: (await import("./src/extension/index.ts")).default;
+const registerParentExtension = (await import("./src/extension/index.ts")).default;
 
 export default function registerSubagentExtension(pi: ExtensionAPI): void {
+	// Check at invocation as well as evaluation: this entry module may already be
+	// cached from a parent load when an in-process child loads its extensions.
+	if (isSubagentChildContext()) return;
 	registerParentExtension?.(pi);
 }

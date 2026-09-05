@@ -1,12 +1,16 @@
-import type { RegisterRuntimeAgentInput, RuntimeAgentDefinition, RuntimeAgentRegistration } from "../agents/runtime-agent-registry.ts";
-export { registerRuntimeAgent as registerAgent } from "../agents/runtime-agent-registry.ts";
-export {
-	RUNTIME_AGENT_REGISTER_EVENT,
-	RUNTIME_AGENT_REGISTER_VERSION,
+import {
 	registerAgentViaEvents,
 	type RegisterRuntimeAgentViaEventsInput,
-	type RuntimeAgentRegistrationRequest,
-	type RuntimeAgentRegistrationResult,
 } from "../agents/runtime-agent-events.ts";
+import type {
+	RuntimeAgentDefinition,
+	RuntimeAgentRegistration,
+} from "../agents/configured-runtime-registry.ts";
 
-export type { RegisterRuntimeAgentInput, RuntimeAgentDefinition, RuntimeAgentRegistration };
+export type RegisterAgentInput = RegisterRuntimeAgentViaEventsInput;
+export type { RuntimeAgentDefinition, RuntimeAgentRegistration };
+
+/** Register one process-local configured agent through the owning pi-subagents extension. */
+export function registerAgent(input: RegisterAgentInput): RuntimeAgentRegistration {
+	return registerAgentViaEvents(input);
+}

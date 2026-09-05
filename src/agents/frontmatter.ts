@@ -57,7 +57,7 @@ export function parseFrontmatterList(raw: string | undefined): string[] | undefi
 }
 
 /**
- * Parse YAML frontmatter from agent/chain files.
+ * Parse the constrained YAML-like frontmatter used by configured agent files.
  * Handles both flat (key: value) and nested block (key: \n  sub: val) values.
  * Block values are stored as single strings with embedded newlines.
  * The indentation of the block content is preserved relative to the key.
