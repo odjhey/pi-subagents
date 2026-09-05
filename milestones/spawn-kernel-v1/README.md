@@ -69,6 +69,10 @@ SK-01 -> SK-02 -> SK-03 -> SK-04 -> SK-05 -> SK-06 -> SK-07 -> SK-08 -> SK-09
 
 The kernel and public switch precede broad deletion so reviewers can compare a working replacement against legacy behavior. SK-05 is the explicit gate before deletion.
 
+## Hands-on acceptance
+
+Use [ACCEPTANCE-GUIDE.md](ACCEPTANCE-GUIDE.md) to test the tagged fork manually, including list behavior, fresh and fork context, exact failures, timeout recovery, parallel calls, parent waiting, strict definitions, and the final product-fit scorecard.
+
 ## Dogfood operating procedure
 
 1. The parent assigns exactly one ready card and names its worker; workers do not self-select extra cards.
