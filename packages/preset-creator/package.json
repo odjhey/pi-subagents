@@ -1,0 +1,20 @@
+{
+  "name": "pi-preset-creator",
+  "version": "0.1.0",
+  "description": "Author and validate Pi subagent presets and individual agent definitions",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/odjhey/pi-subagents.git",
+    "directory": "packages/preset-creator"
+  },
+  "keywords": ["pi-package", "pi-subagents", "presets", "skills"],
+  "files": ["skills", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "pi": {
+    "skills": ["./skills"]
+  }
+}

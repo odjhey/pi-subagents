@@ -31,8 +31,16 @@ Fleet/TUI surfaces, RPC, Herdr, Orca, Gist, bridges, project panes, Git conventi
 
 Removed behavior is removed by hard cutover. Unknown actions and removed fields fail ordinary schema validation. There are no feature flags, deprecated aliases, forwarding shims, bespoke compatibility errors, dead exports, or compatibility branches preserving the former platform.
 
+## Repository authoring tooling
+
+The repository may host separately packaged authoring tools under `packages/`, such as `packages/preset-creator`. These tools help authors create and validate agent definitions and preset packages against the kernel's current contract. Keeping their source and tests alongside the kernel allows contract changes and authoring guidance to be maintained together.
+
+Each authoring tool has its own package manifest, installation, and tests. Authoring tools and their skills, examples, and scaffolding helpers are excluded from the root kernel package and its public exports. The kernel runtime does not load or depend on them. Generated task-specific presets remain independent packages; their guidance does not become kernel policy.
+
 ## Acceptance policy
 
-A change belongs only when it strengthens deterministic configured-agent discovery or the single foreground Pi-child launch boundary while preserving all constraints above. It must keep fresh context as the default, make every deviation explicit and observable, create at most one child per request, isolate recursion, clean up owned children within the bound, and return normalized bounded data without interpreting success.
+A kernel change belongs only when it strengthens deterministic configured-agent discovery or the single foreground Pi-child launch boundary while preserving all constraints above. It must keep fresh context as the default, make every deviation explicit and observable, create at most one child per request, isolate recursion, clean up owned children within the bound, and return normalized bounded data without interpreting success.
 
-A change does not belong when it adds policy inference, orchestration, persistence, background work, provider ownership, external execution, compatibility residue, or any surface unrelated to listing configured agents and launching one exact child. Prefer honest failure over hidden fallback and a hard cutover over preserving removed behavior.
+A kernel change does not belong when it adds policy inference, orchestration, persistence, background work, provider ownership, external execution, compatibility residue, or any surface unrelated to listing configured agents and launching one exact child. Prefer honest failure over hidden fallback and a hard cutover over preserving removed behavior.
+
+An authoring-tool change belongs when it helps authors produce or validate configuration for this contract and preserves the separate package boundary above. It must not expand the kernel runtime, add kernel-owned orchestration, or bundle task-specific presets into the root package.

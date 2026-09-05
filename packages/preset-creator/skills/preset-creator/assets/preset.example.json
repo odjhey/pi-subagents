@@ -1,0 +1,18 @@
+{
+  "name": "pi-preset-repo-outline",
+  "description": "Map a repository's entry points and checks before planning a change",
+  "agents": [
+    {
+      "name": "outline-mapper",
+      "description": "Find relevant repository entry points, instruction files, and documented checks without editing files.",
+      "systemPrompt": "Inspect the repository area named in the parent's task. Read the applicable repository instructions and locate relevant entry points, tests, and documented check commands. Return a concise map with concrete paths, evidence for each finding, and any uncertainty. Distinguish proposed commands from checks you actually ran. You have a fresh conversation, so return material missing context to the parent. Keep files unchanged.",
+      "tools": ["read", "grep", "find", "ls"],
+      "context": "fresh"
+    }
+  ],
+  "skill": {
+    "name": "repo-outline",
+    "description": "Use the outline-mapper agent to map repository entry points and documented checks before planning a scoped change.",
+    "instructions": "Call subagent with {\"action\":\"list\"}. Confirm outline-mapper is available and inspect diagnostics affecting that name. Establish the repository path, the user's area of interest, and applicable repository instructions. Launch outline-mapper with agent and a self-contained task; omit action, use the repository cwd and fresh context, and choose an explicit timeout. Include the user's objective and instruction-file paths in the task because the child does not inherit this conversation. Wait for the result, inspect its status and evidence, then explain the relevant entry points and checks to the user. Report gaps or failures honestly; a completed session does not guarantee complete findings. Keep this task focused on investigation unless the user separately requests changes."
+  }
+}

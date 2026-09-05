@@ -119,6 +119,21 @@ registration.dispose();
 
 `registerAgent` works whether the calling extension or the owning `pi-subagents` extension loads first. It validates synchronously, rejects duplicate exact names once an owner adopts the registration, and returns an idempotent process-local disposal handle. The `./agents` export also exposes `RegisterAgentInput`, `RuntimeAgentDefinition`, and `RuntimeAgentRegistration`. Runtime registration requires `pi`, `name`, and `definition.description`; the remaining supported definition fields are optional: `systemPrompt`, `tools`, `model`, `thinking`, `context`, `cwd`, `skills`, and `extensions`.
 
+## Preset authoring
+
+This repository includes a separately installable authoring package at [`packages/preset-creator`](packages/preset-creator/README.md). It provides `/skill:preset-creator`, scaffold commands for individual agents and preset packages, and checks against the kernel's definition parser and Pi's skill loader. The authoring package is excluded from the root kernel distribution.
+
+From the project where you want to author agents or presets, install it from a local checkout:
+
+```bash
+pi install -l /absolute/path/to/pi-subagents/packages/preset-creator
+pi
+```
+
+Then ask `/skill:preset-creator` to create the agent or preset you need. Generated task-specific presets remain independent packages.
+
+For development in this repository, `npm run test:preset-creator` validates the creator against the containing kernel checkout. `npm run test:all` includes both the kernel and creator suites; the package proof continues to enforce the kernel's exact 17-file distribution.
+
 ## Scope
 
 This package provides only deterministic configured-agent discovery and one foreground Pi-child launch. The parent decides what to delegate and evaluates the result. There is no background lifecycle, persistence, orchestration, management UI, acceptance policy, provider integration, or external command runner.
