@@ -176,7 +176,11 @@ For the clearest trace, exit interactive Pi and run:
 pi --no-extensions -e "$EXT" \
   --no-builtin-tools --tools subagent \
   --mode json -p \
-  'In your next assistant message, issue exactly three subagent tool calls at once, not sequentially. Use agent "probe" for all three. Task 1: read alpha.txt and return it. Task 2: read bravo.txt and return it. Task 3: read charlie.txt and return it. Use context fresh and timeoutMs 120000 for each. After all three results arrive, report the three outputs.' \
+  'In your next assistant message, issue exactly three subagent tool calls at once, using exactly these actionless JSON requests. Omit the action field from every launch request.
+{"agent": "probe", "task": "Read alpha.txt and return its exact contents.", "context": "fresh", "timeoutMs": 120000}
+{"agent": "probe", "task": "Read bravo.txt and return its exact contents.", "context": "fresh", "timeoutMs": 120000}
+{"agent": "probe", "task": "Read charlie.txt and return its exact contents.", "context": "fresh", "timeoutMs": 120000}
+After all three results arrive, report the three outputs. Make exactly three tool calls total.' \
   | tee /tmp/pi-subagents-concurrency.jsonl
 ```
 
@@ -189,13 +193,15 @@ grep -nE 'subagent|tool_execution_(start|end)' /tmp/pi-subagents-concurrency.jso
 ### Pass criteria
 
 - There are exactly three `subagent` calls.
-- Pi reports all three tool starts before the first matching tool end. If it does not, the parent/provider emitted sequential calls; retry once with the same explicit instruction.
+- Pi reports all three tool starts before the first matching tool end.
 - Each call owns one child and returns its matching marker.
 - The parent final response appears only after all three tool results.
 - Pi's UI/process remains responsive and can be interrupted, but the parent model does not continue reasoning while the foreground calls are outstanding.
 
 ### Important interpretation
 
+- If starts and ends interleave, inspect validation errors and the assistant's tool-call batches before diagnosing scheduling. Pi can reject invalid calls during preflight even when the parent emits all three together. Launch requests must omit `action`; `action: "list"` is the only supported action value.
+- If the parent emits invalid or sequential requests, retry once with the exact prompt above and retain both traces. A run with validation failures followed by successful retries still fails the exactly-three-calls criterion. If three valid calls are emitted together but execution remains sequential, investigate Pi's tool-execution configuration or runtime scheduling.
 - If parallel calls overlap: the current kernel supports the desired parent-composed concurrency.
 - If you need the parent model to continue while children run, or to detach and return later, this product is **not** sufficient; that would require a background lifecycle product.
 - Child startup may be briefly serialized because Pi's in-process extension cache is global. Their task execution can overlap afterward.

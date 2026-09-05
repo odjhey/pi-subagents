@@ -8,7 +8,7 @@ import { isSubagentChildContext } from "../runs/shared/child-session.ts";
 import { createSubagentParamsSchema } from "./schemas.ts";
 import { resolveDiscoverySources } from "./discovery-sources.ts";
 
-const DESCRIPTION = "List configured child agents or launch one named Pi child in the foreground. Listing is side-effect-free. Launches return the child's normalized status, output, error, and reported usage.";
+const DESCRIPTION = 'List configured child agents with { action: "list" }. To launch one named Pi child in the foreground, supply agent and task and omit action. Listing is side-effect-free. Launches return the child\'s normalized status, output, error, and reported usage.';
 type Details = { agents: Array<{ name: string; description: string; source: string }>; diagnostics: Array<{ code: string; message: string; source?: string }> } | ForegroundResult;
 type Kernel = ReturnType<typeof createForegroundKernel>;
 
